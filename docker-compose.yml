@@ -1,0 +1,11 @@
+services:
+  vla-azure-storage:
+    image: mcr.microsoft.com/azure-storage/azurite:latest
+    container_name: vla-azure-storage
+    ports:
+      - "10000:10000" # Only Blob service port
+    volumes:
+      - /home/vla/projects/cloud/ass2/data:/data #data
+      - /home/vla/projects/cloud/ass2/.log:/log #logs
+    # Explicitly calling 'azurite-blob' instead of 'azurite'
+    command: "azurite-blob --skipApiVersionCheck --blobHost 0.0.0.0 --location /data --debug debug.log"

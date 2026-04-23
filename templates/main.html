@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vlad's Cloud Vault Solution</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="icon"
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230056ff'/%3E%3Cpath d='M17 18l15 9-10 6-15-9zm15 9 15-9 10 6-15 9zm-10 8 10 6 10-6-10-6z' fill='white'/%3E%3C/svg%3E" />
+    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=7" rel="stylesheet" />
+    <script>
+        window.FIREBASE_API_KEY = {{firebase_api_key | tojson}};
+    </script>
+    <script type="module" src="{{ url_for('static', path='/firebase-login.js') }}?v=3"></script>
+</head>
+
+<body class="bg-transparent text-[#f0f0f0] antialiased">
+    {% set blob_count = blobs|length if blobs else 0 %}
+    <div class="min-h-screen md:grid md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[250px_minmax(0,1fr)]">
+        <aside
+            class="sidebar-shell flex flex-col border-b border-white/8 px-6 py-5 md:min-h-screen md:border-b-0 md:border-r">
+            <div class="flex items-center gap-3">
+                <button class="icon-button hidden md:inline-flex" type="button" aria-label="App menu">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4">
+                        <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
+                    </svg>
+                </button>
+                <div>
+                    <p class="text-[1.5rem] font-semibold tracking-tight text-[#f0f0f0]">Vlad's Cloud</p>
+                </div>
+            </div>
+
+            <nav class="mt-8 space-y-1 text-[15px]">
+                <a href="#dashboard" class="sidebar-link sidebar-link-active">Home</a>
+                <a href="#dashboard" class="sidebar-link">All files</a>
+                <!-- TODO:implement Recent as the section under file tree  -->
+                <!-- <a href="#summary" class="sidebar-link">Recents</a> -->
+                <a href="#summary" class="sidebar-link">Shared</a>
+                <a href="#summary" class="sidebar-link sidebar-link-muted">Deleted files</a>
+            </nav>
+
+        </aside>
+
+        <div class="min-w-0 bg-[#252321]">
+            <header class="topbar-shell border-b border-white/8 px-4 py-3 sm:px-6 lg:px-8">
+                <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div class="flex items-center gap-3 text-[#f0f0f0]">
+                        <button class="icon-button md:hidden" type="button" aria-label="Navigation">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                class="h-4 w-4">
+                                <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
+                            </svg>
+                        </button>
+                        <div
+                            class="search-shell flex w-full items-center gap-3 rounded-full px-4 py-3 xl:min-w-[420px] xl:max-w-[460px]">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                class="h-4 w-4 text-[#f0f0f0]">
+                                <circle cx="11" cy="11" r="7"></circle>
+                                <path d="m20 20-3.5-3.5" stroke-linecap="round"></path>
+                            </svg>
+                            <input type="text" placeholder="Search"
+                                class="w-full bg-transparent text-sm text-[#f0f0f0] outline-none placeholder:text-[#f0f0f0]" />
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-3 self-end xl:self-auto">
+                        <button class="icon-button" type="button" aria-label="Help">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                class="h-4 w-4">
+                                <circle cx="12" cy="12" r="9"></circle>
+                                <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" stroke-linecap="round"></path>
+                                <path d="M12 17h.01" stroke-linecap="round"></path>
+                            </svg>
+                        </button>
+                        <button id="sign-out" hidden="true"
+                            class="toolbar-button whitespace-nowrap px-4 py-2 text-sm text-[#f0f0f0]">Sign out</button>
+                    </div>
+                </div>
+            </header>
+
+            <main id="dashboard" class="dashboard-main px-4 py-5 sm:px-6 lg:px-8">
+                <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                        <p class="text-sm text-[#f0f0f0]">Storage Vault</p>
+                        <h1 class="mt-1 text-[2rem] font-semibold tracking-tight text-[#f0f0f0]">All files</h1>
+                    </div>
+
+                    {% if user_token %}
+                    <div class="flex flex-wrap items-center gap-2">
+                        <label for="file_name"
+                            class="toolbar-button toolbar-button-primary cursor-pointer px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Upload</label>
+                        <button type="button" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]">Create
+                            Folder</button>
+                        <button type="button" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]">Delete
+                            Folder</button>
+
+                        <button type="button" class="toolbar-button icon-button-square" aria-label="More options">
+                            <svg viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
+                                <circle cx="5" cy="12" r="1.8"></circle>
+                                <circle cx="12" cy="12" r="1.8"></circle>
+                                <circle cx="19" cy="12" r="1.8"></circle>
+                            </svg>
+                        </button>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <section id="summary" class="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+                    <div class="summary-card p-5">
+                        <article>
+                            <p class="summary-label">File count</p>
+                            <p class="summary-value">{{ blob_count }}</p>
+                            <p class="summary-copy">Visible files in blob storage</p>
+                        </article>
+                    </div>
+
+                    <div class="summary-card p-5">
+                        <p class="summary-label">Current workspace</p>
+                        <div class="mt-4 space-y-3 text-sm text-[#f0f0f0]">
+                            <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                <span class="text-[#f0f0f0]">Container</span>
+                                <span class="font-medium text-[#f0f0f0]">my-container</span>
+                            </div>
+                            <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                <span class="text-[#f0f0f0]">User</span>
+                                <span class="max-w-[150px] truncate text-right font-medium text-[#f0f0f0]">{% if
+                                    user_token %}{{ user_token.email }}{% else %}Guest{% endif %}</span>
+                            </div>
+                            <div class="flex items-center justify-between gap-4">
+                                <span class="text-[#f0f0f0]">Visibility</span>
+                                <span class="font-medium text-[#f0f0f0]">Only you</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                {% if not user_token %}
+                <div id="login-box" hidden="true" class="login-modal">
+                    <div class="login-panel login-popup w-full max-w-[420px]">
+                        <p class="summary-label">Login</p>
+                        <h2 class="mt-2 text-2xl font-semibold text-[#f0f0f0]">Access your workspace</h2>
+                        <p class="mt-2 text-sm leading-6 text-[#f0f0f0]">Sign in to start using the service.</p>
+
+                        <div class="mt-6 space-y-4">
+                            <div>
+                                <label class="ui-label" for="email">Email</label>
+                                <input id="email" type="email" class="ui-input mt-2" placeholder="you@example.com" />
+                            </div>
+                            <div>
+                                <label class="ui-label" for="password">Password</label>
+                                <input id="password" type="password" class="ui-input mt-2"
+                                    placeholder="Enter password" />
+                            </div>
+                        </div>
+
+                        <div class="mt-6 flex flex-wrap gap-3">
+                            <button id="login" type="button"
+                                class="toolbar-button toolbar-button-primary px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Log
+                                in</button>
+                            <button id="open-sign-up" type="button"
+                                class="toolbar-button px-5 py-2.5 text-sm text-[#f0f0f0]">Create account</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="signup-box" hidden="true" class="login-modal">
+                    <div class="login-panel login-popup w-full max-w-[420px]">
+                        <p class="summary-label">Sign up</p>
+                        <h2 class="mt-2 text-2xl font-semibold text-[#f0f0f0]">Create your account</h2>
+                        <p class="mt-2 text-sm leading-6 text-[#f0f0f0]">Create account, to enter your cloud vault</p>
+
+                        <div class="mt-6 space-y-4">
+                            <div>
+                                <label class="ui-label" for="sign-up-email">Email</label>
+                                <input id="sign-up-email" type="email" class="ui-input mt-2"
+                                    placeholder="you@example.com" />
+                            </div>
+                            <div>
+                                <label class="ui-label" for="sign-up-password">Password</label>
+                                <input id="sign-up-password" type="password" class="ui-input mt-2"
+                                    placeholder="Create password" />
+                            </div>
+                        </div>
+
+                        <div class="mt-6 flex flex-wrap gap-3">
+                            <button id="sign-up-submit" type="button"
+                                class="toolbar-button toolbar-button-primary px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Create
+                                account</button>
+                            <button id="back-to-login" type="button"
+                                class="toolbar-button px-5 py-2.5 text-sm text-[#f0f0f0]">Back to login</button>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <section class="mt-6 grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
+                    <div class="space-y-6">
+                        <form action="/upload-file" method="post" enctype="multipart/form-data" class="hidden">
+                            <input id="path" type="hidden" name="path" value="" />
+                            <input id="file_name" type="file" name="file_name" class="hidden"
+                                onchange="if (this.files.length) this.form.submit();" />
+                        </form>
+
+                        <div class="summary-card p-5">
+                            <p class="text-base font-semibold text-[#f0f0f0]">Note</p>
+                            <ul class="mt-4 space-y-3 text-sm leading-6 text-[#f0f0f0]">
+                                <li>Open opens blob URL</li>
+                                <li>Delete removes selected blob from storage (for now) TODO implememnt Trash bin</li>
+                                <li>Rows show size and modified metadata</li>
+                            </ul>
+                        </div>
+                    </div>
+
+                    <div class="table-shell overflow-hidden rounded-[18px]">
+                        <div
+                            class="file-table-header hidden grid-cols-[minmax(0,1.8fr)_190px_210px_120px_120px] gap-4 px-6 py-4 text-sm font-medium md:grid">
+                            <div>Name ↑</div>
+                            <div>Modified</div>
+                            <div>Who can access</div>
+                            <div>Size</div>
+                            <div></div>
+                        </div>
+
+                        {% if blobs %}
+                        <div class="divide-y divide-slate-200">
+                            {% for blob in blobs %}
+                            <div
+                                class="file-row grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1.8fr)_190px_210px_120px_120px] md:px-6">
+                                <div class="min-w-0">
+                                    <div class="flex items-center gap-3">
+                                        <div class="file-icon" aria-hidden="true">
+                                            {% if blob.is_folder %}
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                stroke-width="1.7" class="h-4 w-4">
+                                                <path
+                                                    d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v7A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5z"
+                                                    stroke-linejoin="round"></path>
+                                            </svg>
+                                            {% else %}
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                stroke-width="1.7" class="h-4 w-4">
+                                                <path
+                                                    d="M7 3.75h6.5L19 9.25v11A1.75 1.75 0 0 1 17.25 22h-10.5A1.75 1.75 0 0 1 5 20.25V5.5A1.75 1.75 0 0 1 6.75 3.75z"
+                                                    stroke-linejoin="round"></path>
+                                                <path d="M13 3.75v5.5h5.5" stroke-linejoin="round"></path>
+                                            </svg>
+                                            {% endif %}
+                                        </div>
+                                        <div class="min-w-0">
+                                            <a href="{{ blob.url }}"
+                                                class="block truncate text-sm font-medium text-[#f0f0f0] hover:text-[#0057ff]">{{
+                                                blob.display_name or blob.name }}</a>
+                                            <p class="mt-1 truncate text-xs text-[#f0f0f0]">{{ blob.kind }}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="table-meta text-sm text-[#f0f0f0]" data-label="Modified">{{
+                                    blob.last_modified_label }}</div>
+                                <div class="table-meta text-sm text-[#f0f0f0]" data-label="Who can access">Only you
+                                </div>
+                                <div class="table-meta text-sm text-[#f0f0f0]" data-label="Size">{{ blob.size_label }}
+                                </div>
+                                <div class="flex items-center gap-2 md:justify-end">
+                                    <a href="{{ blob.url }}" class="row-action"
+                                        download="{{ blob.display_name or blob.name }}">Download</a>
+                                    <form action="/delete-file" method="post">
+                                        <input type="hidden" name="filename" value="{{ blob.name }}" />
+                                        <input type="submit" value="Delete"
+                                            class="row-action row-action-danger cursor-pointer" />
+                                    </form>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="px-6 py-16 text-center text-sm text-[#f0f0f0]">No files found yet. Upload first
+                            object to populate dashboard.</div>
+                        {% endif %}
+                    </div>
+                </section>
+                {% endif %}
+            </main>
+        </div>
+    </div>
+</body>
+
+</html>
