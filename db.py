@@ -28,12 +28,16 @@ def normalize_path(path):
     return clean_path
 
 
-def build_filetree_entry(filename, path, blob_url, blob_name=None):
+def build_filetree_entry(filename, path, blob_url, blob_name=None, size_bytes=0):
+    now = datetime.now(timezone.utc)
     entry = {
         "filename": filename,
         "path": normalize_path(path),
         "blob_url": blob_url,
-        "createdAt_timestamp": datetime.now(timezone.utc),
+        "size_bytes": size_bytes,
+        "createdAt_timestamp": now,
+        "modified_timestamp": now,
+        "opened_timestamp": None,
     }
     if blob_name:
         entry["blob_name"] = blob_name
@@ -47,12 +51,15 @@ def serialize_entry(entry):
         "path": entry["path"],
         "blob_url": entry["blob_url"],
         "blob_name": entry.get("blob_name"),
+        "size_bytes": entry.get("size_bytes", 0),
         "createdAt_timestamp": entry["createdAt_timestamp"],
+        "modified_timestamp": entry.get("modified_timestamp", entry["createdAt_timestamp"]),
+        "opened_timestamp": entry.get("opened_timestamp"),
     }
 
 
-def create_entry(filename, path, blob_url, blob_name=None):
-    entry = build_filetree_entry(filename, path, blob_url, blob_name)
+def create_entry(filename, path, blob_url, blob_name=None, size_bytes=0):
+    entry = build_filetree_entry(filename, path, blob_url, blob_name, size_bytes)
     existing_entry = filetree_collection.find_one(
         {
             "filename": entry["filename"],
@@ -60,9 +67,11 @@ def create_entry(filename, path, blob_url, blob_name=None):
         }
     )
     if existing_entry:
+        now = datetime.now(timezone.utc)
         update_fields = {
             "blob_url": entry["blob_url"],
-            "createdAt_timestamp": entry["createdAt_timestamp"],
+            "size_bytes": size_bytes,
+            "modified_timestamp": now,
         }
         if blob_name:
             update_fields["blob_name"] = blob_name
@@ -74,6 +83,31 @@ def create_entry(filename, path, blob_url, blob_name=None):
 
     inserted = filetree_collection.insert_one(entry)
     return serialize_entry(filetree_collection.find_one({"_id": inserted.inserted_id}))
+
+
+def touch_entry_opened(entry_id):
+    filetree_collection.update_one(
+        {"_id": ObjectId(entry_id)},
+        {"$set": {"opened_timestamp": datetime.now(timezone.utc)}},
+    )
+
+
+def touch_entry_opened_by_path(parent_path, folder_name):
+    filetree_collection.update_one(
+        {"path": normalize_path(parent_path), "filename": folder_name, "blob_url": ""},
+        {"$set": {"opened_timestamp": datetime.now(timezone.utc)}},
+    )
+
+
+def compute_folder_size(parent_path, folder_name):
+    inner_path = folder_path(parent_path, folder_name)
+    total = 0
+    for child in filetree_collection.find({"path": inner_path}):
+        if child.get("blob_url"):
+            total += int(child.get("size_bytes") or 0)
+        else:
+            total += compute_folder_size(child["path"], child["filename"])
+    return total
 
 
 def list_entries(path):
@@ -139,7 +173,7 @@ def rename_entry(entry_id, new_name):
 
     filetree_collection.update_one(
         {"_id": ObjectId(entry_id)},
-        {"$set": {"filename": clean_name}},
+        {"$set": {"filename": clean_name, "modified_timestamp": datetime.now(timezone.utc)}},
     )
 
     if old_folder_path and new_folder_path and old_folder_path != new_folder_path:

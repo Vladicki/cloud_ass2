@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import os
 from io import BytesIO
 from azure.storage.blob import BlobServiceClient, AccessPolicy, ContainerSasPermissions, PublicAccess
-from db import user_collection, normalize_path, list_entries, create_entry, get_entry, delete_entry, count_blob_references, has_folder_children, folder_path, rename_entry
+from db import user_collection, normalize_path, list_entries, create_entry, get_entry, delete_entry, count_blob_references, has_folder_children, folder_path, rename_entry, touch_entry_opened, touch_entry_opened_by_path, compute_folder_size
 
 load_dotenv()
 
@@ -172,14 +172,18 @@ def buildExplorerEntries(entries):
     for entry in entries:
         is_folder = entry["blob_url"] == ""
         extension = entry["filename"].rsplit(".", 1)[1].upper() if "." in entry["filename"] and not is_folder else None
+        size_bytes = compute_folder_size(entry["path"], entry["filename"]) if is_folder else int(entry.get("size_bytes") or 0)
         explorer_entries.append({
             "id": entry["id"],
             "name": entry["filename"],
             "display_name": entry["filename"],
             "url": entry["blob_url"],
             "blob_name": entry.get("blob_name") or buildBlobName(entry["path"], entry["filename"]),
-            "size_label": "--" if is_folder else "File",
-            "last_modified_label": formatBlobModified(entry["createdAt_timestamp"]),
+            "size_bytes": size_bytes,
+            "size_label": formatBlobSize(size_bytes),
+            "last_modified_label": formatBlobModified(entry.get("modified_timestamp") or entry["createdAt_timestamp"]),
+            "opened_label": formatBlobModified(entry.get("opened_timestamp")) if entry.get("opened_timestamp") else "Never",
+            "created_label": formatBlobModified(entry["createdAt_timestamp"]),
             "kind": "Folder" if is_folder else (extension or "File"),
             "is_folder": is_folder,
             "path": entry["path"],
@@ -237,6 +241,12 @@ async def root(request: Request):
 
     user = getUser(user_token)
 
+    if active_dir != "/":
+        segments = [s for s in active_dir.strip("/").split("/") if s]
+        if segments:
+            parent = "/" + "/".join(segments[:-1]) + "/" if len(segments) > 1 else "/"
+            touch_entry_opened_by_path(parent, segments[-1])
+
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir, error_message=error_message)
 
@@ -273,9 +283,10 @@ async def uploadFile(request: Request):
         return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
     blob_name = buildBlobName(active_dir, uploaded_file.filename)
-    azure_container_client.upload_blob(name=blob_name, data=uploaded_file.file.read(), overwrite=True)
+    blob_data = uploaded_file.file.read()
+    azure_container_client.upload_blob(name=blob_name, data=blob_data, overwrite=True)
     blob_url = azure_container_client.get_blob_client(blob_name).url
-    create_entry(uploaded_file.filename, active_dir, blob_url, blob_name)
+    create_entry(uploaded_file.filename, active_dir, blob_url, blob_name, size_bytes=len(blob_data))
 
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir)
@@ -339,6 +350,7 @@ async def downloadFile(entry_id: str, request: Request):
     if not entry or entry["blob_url"] == "":
         raise HTTPException(status_code=404, detail="File not found")
 
+    touch_entry_opened(entry_id)
     blob_name = entry.get("blob_name") or buildBlobName(entry["path"], entry["filename"])
     blob_client = azure_container_client.get_blob_client(blob_name)
 

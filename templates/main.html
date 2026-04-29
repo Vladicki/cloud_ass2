@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="icon"
         href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230056ff'/%3E%3Cpath d='M17 18l15 9-10 6-15-9zm15 9 15-9 10 6-15 9zm-10 8 10 6 10-6-10-6z' fill='white'/%3E%3C/svg%3E" />
-    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=12" rel="stylesheet" />
+    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=15" rel="stylesheet" />
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script>
         window.FIREBASE_API_KEY = {{firebase_api_key | tojson}};
@@ -233,8 +233,8 @@
                     </div>
                 </div>
 
-                <section class="mt-6 grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
-                    <div class="space-y-6">
+                <section class="mt-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_260px] lg:grid-cols-[minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1fr)_300px]">
+                    <div class="space-y-6 md:order-2">
                         <form id="upload-form" action="/upload-file" method="post" enctype="multipart/form-data"
                             hx-post="/upload-file" hx-target="#file-region" hx-swap="innerHTML"
                             hx-encoding="multipart/form-data" class="hidden">
@@ -243,13 +243,38 @@
                                 onchange="if (this.files.length) this.form.requestSubmit();" />
                         </form>
 
-                        <div class="summary-card p-5">
-                            <p class="text-base font-semibold text-[#f0f0f0]">Note</p>
-                            <ul class="mt-4 space-y-3 text-sm leading-6 text-[#f0f0f0]">
-                                <li>Folders use MongoDB metadata with empty blob URL</li>
-                                <li>Uploads attach to current active dir</li>
-                                <li>Blob delete runs only when no other filetree entry uses same blob URL</li>
-                            </ul>
+                        <div id="preview-card" class="summary-card relative p-5" hidden>
+                            <button type="button" id="preview-close" aria-label="Close preview"
+                                class="preview-close-button absolute right-3 top-3">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                    class="h-3.5 w-3.5">
+                                    <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
+                                </svg>
+                            </button>
+                            <p class="summary-label">Preview</p>
+                            <p id="preview-name" class="mt-2 truncate pr-8 text-base font-semibold text-[#f0f0f0]">—</p>
+                            <dl class="mt-4 space-y-3 text-sm text-[#f0f0f0]">
+                                <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                    <dt class="text-white/60">File Type</dt>
+                                    <dd id="preview-kind" class="font-medium">—</dd>
+                                </div>
+                                <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                    <dt class="text-white/60">Modified</dt>
+                                    <dd id="preview-modified" class="font-medium">—</dd>
+                                </div>
+                                <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                    <dt class="text-white/60">Opened</dt>
+                                    <dd id="preview-opened" class="font-medium">—</dd>
+                                </div>
+                                <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                    <dt class="text-white/60">Created At</dt>
+                                    <dd id="preview-created" class="font-medium">—</dd>
+                                </div>
+                                <div class="flex items-center justify-between gap-4">
+                                    <dt class="text-white/60">Size</dt>
+                                    <dd id="preview-size" class="font-medium">—</dd>
+                                </div>
+                            </dl>
                         </div>
 
                         {% if error_message %}
@@ -257,7 +282,7 @@
                         {% endif %}
                     </div>
 
-                    <div id="file-region" class="min-w-0 space-y-3">
+                    <div id="file-region" class="min-w-0 space-y-3 md:order-1">
                         {% include "_file_region.html" %}
                     </div>
                 </section>
@@ -311,6 +336,47 @@
             syncActiveDir(path);
         }
 
+        const previewCard = document.getElementById("preview-card");
+        const previewName = document.getElementById("preview-name");
+        const previewKind = document.getElementById("preview-kind");
+        const previewModified = document.getElementById("preview-modified");
+        const previewOpened = document.getElementById("preview-opened");
+        const previewCreated = document.getElementById("preview-created");
+        const previewSize = document.getElementById("preview-size");
+        const previewCloseButton = document.getElementById("preview-close");
+        let pendingPreview = null;
+
+        function applyPreview(data) {
+            previewName.textContent = data.name || "—";
+            previewKind.textContent = data.kind || "—";
+            previewModified.textContent = data.modified || "—";
+            previewOpened.textContent = data.opened || "—";
+            previewCreated.textContent = data.created || "—";
+            previewSize.textContent = data.size || "—";
+            previewCard.hidden = false;
+        }
+
+        function snapshotRow(row) {
+            return {
+                name: row.dataset.entryName,
+                kind: row.dataset.entryKind,
+                modified: row.dataset.entryModified,
+                opened: row.dataset.entryOpened,
+                created: row.dataset.entryCreated,
+                size: row.dataset.entrySize,
+            };
+        }
+
+        function showPreview(row) {
+            applyPreview(snapshotRow(row));
+        }
+
+        function hidePreview() {
+            previewCard.hidden = true;
+        }
+
+        previewCloseButton?.addEventListener("click", hidePreview);
+
         fileRegion.addEventListener("click", (event) => {
             const breadcrumb = event.target.closest(".breadcrumb-link");
             if (breadcrumb && !breadcrumb.classList.contains("breadcrumb-current")) {
@@ -324,11 +390,13 @@
             selectedRow = row;
             selectedRow.classList.add("file-row-selected");
             openRenameEntryButton.hidden = false;
+            showPreview(row);
         });
 
         fileRegion.addEventListener("dblclick", (event) => {
             const row = event.target.closest(".file-row-selectable");
             if (!row || row.dataset.entryFolder !== "true") return;
+            pendingPreview = snapshotRow(row);
             navigateTo(row.dataset.entryPath);
         });
 
@@ -342,6 +410,12 @@
             if (e.target.id === "file-region") {
                 selectedRow = null;
                 openRenameEntryButton.hidden = true;
+                if (pendingPreview) {
+                    applyPreview(pendingPreview);
+                    pendingPreview = null;
+                } else {
+                    hidePreview();
+                }
             }
         });
 
