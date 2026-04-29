@@ -8,7 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="icon"
         href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230056ff'/%3E%3Cpath d='M17 18l15 9-10 6-15-9zm15 9 15-9 10 6-15 9zm-10 8 10 6 10-6-10-6z' fill='white'/%3E%3C/svg%3E" />
-    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=11" rel="stylesheet" />
+    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=12" rel="stylesheet" />
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script>
         window.FIREBASE_API_KEY = {{firebase_api_key | tojson}};
     </script>
@@ -192,7 +193,8 @@
                 <div id="create-folder-modal" hidden="true" class="login-modal">
                     <div class="login-panel login-popup w-full max-w-[420px]">
                         <p class="summary-label">Create folder</p>
-                        <form action="/create-folder" method="post" class="mt-6 space-y-4">
+                        <form action="/create-folder" method="post" hx-post="/create-folder"
+                            hx-target="#file-region" hx-swap="innerHTML" class="mt-6 space-y-4">
                             <input type="hidden" name="path" value="{{ active_dir }}" />
                             <div>
                                 <label class="ui-label" for="folder_name">Folder name</label>
@@ -212,7 +214,8 @@
                 <div id="rename-entry-modal" hidden="true" class="login-modal">
                     <div class="login-panel login-popup w-full max-w-[420px]">
                         <p class="summary-label">Rename entry</p>
-                        <form action="/rename-entry" method="post" class="mt-6 space-y-4">
+                        <form action="/rename-entry" method="post" hx-post="/rename-entry"
+                            hx-target="#file-region" hx-swap="innerHTML" class="mt-6 space-y-4">
                             <input type="hidden" name="path" value="{{ active_dir }}" />
                             <input type="hidden" id="rename-entry-id" name="entry_id" value="" />
                             <div>
@@ -232,10 +235,12 @@
 
                 <section class="mt-6 grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
                     <div class="space-y-6">
-                        <form action="/upload-file" method="post" enctype="multipart/form-data" class="hidden">
+                        <form id="upload-form" action="/upload-file" method="post" enctype="multipart/form-data"
+                            hx-post="/upload-file" hx-target="#file-region" hx-swap="innerHTML"
+                            hx-encoding="multipart/form-data" class="hidden">
                             <input id="path" type="hidden" name="path" value="{{ active_dir }}" />
                             <input id="file_name" type="file" name="file_name" class="hidden"
-                                onchange="if (this.files.length) this.form.submit();" />
+                                onchange="if (this.files.length) this.form.requestSubmit();" />
                         </form>
 
                         <div class="summary-card p-5">
@@ -252,96 +257,8 @@
                         {% endif %}
                     </div>
 
-                    <div class="min-w-0 space-y-3">
-                        {% set crumb_parts = active_dir.strip('/').split('/') if active_dir and active_dir != '/' else
-                        [] %}
-                        {% set ns = namespace(acc='') %}
-                        <nav class="breadcrumb-bar flex flex-wrap items-center gap-1 text-sm" aria-label="Current path">
-                            <a href="/?path=/"
-                                class="breadcrumb-link {{ 'breadcrumb-current' if not crumb_parts }}">Drive</a>
-                            {% for seg in crumb_parts %}
-                            {% set ns.acc = ns.acc + '/' + seg %}
-                            <span class="breadcrumb-sep" aria-hidden="true">/</span>
-                            <a href="/?path={{ ns.acc }}"
-                                class="breadcrumb-link {{ 'breadcrumb-current' if loop.last }}">{{ seg }}</a>
-                            {% endfor %}
-                        </nav>
-
-                        <div class="table-shell overflow-hidden rounded-[18px]">
-                            <div
-                                class="file-table-header hidden gap-4 px-6 py-4 text-sm font-medium md:grid md:grid-cols-[minmax(0,1fr)_110px_120px] lg:grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)_110px_120px] xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.1fr)_110px_120px]">
-                                <div>Name ↑</div>
-                                <div class="hidden lg:block">Modified</div>
-                                <div class="hidden xl:block">Who can access</div>
-                                <div>Size</div>
-                                <div></div>
-                            </div>
-
-                            {% if blobs %}
-                            <div class="divide-y divide-slate-200">
-                                {% for blob in blobs %}
-                                <div class="file-row file-row-selectable grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_110px_120px] md:px-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)_110px_120px] xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.1fr)_110px_120px]"
-                                    data-entry-id="{{ blob.id }}" data-entry-name="{{ blob.display_name }}"
-                                    data-entry-folder="{{ 'true' if blob.is_folder else 'false' }}"
-                                    data-entry-path="{{ blob.next_path }}">
-                                    <div class="min-w-0">
-                                        <div class="flex items-center gap-3">
-                                            <div class="file-icon" aria-hidden="true">
-                                                {% if blob.is_folder %}
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="1.7" class="h-4 w-4">
-                                                    <path
-                                                        d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v7A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5z"
-                                                        stroke-linejoin="round"></path>
-                                                </svg>
-                                                {% else %}
-                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                    stroke-width="1.7" class="h-4 w-4">
-                                                    <path
-                                                        d="M7 3.75h6.5L19 9.25v11A1.75 1.75 0 0 1 17.25 22h-10.5A1.75 1.75 0 0 1 5 20.25V5.5A1.75 1.75 0 0 1 6.75 3.75z"
-                                                        stroke-linejoin="round"></path>
-                                                    <path d="M13 3.75v5.5h5.5" stroke-linejoin="round"></path>
-                                                </svg>
-                                                {% endif %}
-                                            </div>
-                                            <div class="min-w-0">
-                                                <button type="button"
-                                                    class="file-entry-trigger block truncate text-left text-sm font-medium text-[#f0f0f0] hover:text-[#0057ff]">{{
-                                                    blob.display_name }}</button>
-                                                <p class="mt-1 truncate text-xs text-[#f0f0f0]">{{ blob.kind }}</p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                    <div class="table-meta text-sm text-[#f0f0f0] md:hidden lg:block"
-                                        data-label="Modified">{{
-                                        blob.last_modified_label }}</div>
-                                    <div class="table-meta text-sm text-[#f0f0f0] md:hidden xl:block"
-                                        data-label="Who can access">Only you
-                                    </div>
-                                    <div class="table-meta text-sm text-[#f0f0f0]" data-label="Size">{{ blob.size_label
-                                        }}
-                                    </div>
-                                    <div class="flex items-center gap-2 md:justify-end">
-                                        {% if not blob.is_folder %}
-                                        <a href="{{ url_for('downloadFile', entry_id=blob.id) }}"
-                                            class="row-action">Download</a>
-                                        {% endif %}
-                                        <form action="/delete-file" method="post">
-                                            <input type="hidden" name="entry_id" value="{{ blob.id }}" />
-                                            <input type="hidden" name="path" value="{{ active_dir }}" />
-                                            <input type="submit" value="Delete"
-                                                class="row-action row-action-danger cursor-pointer" />
-                                        </form>
-                                    </div>
-                                </div>
-                                {% endfor %}
-                            </div>
-                            {% else %}
-                            <div class="px-6 py-16 text-center text-sm text-[#f0f0f0]">No files found in {{ active_dir
-                                }}.
-                            </div>
-                            {% endif %}
-                        </div>
+                    <div id="file-region" class="min-w-0 space-y-3">
+                        {% include "_file_region.html" %}
                     </div>
                 </section>
                 {% endif %}
@@ -382,19 +299,55 @@
             renameNameInput.select();
         });
 
-        document.querySelectorAll(".file-row-selectable").forEach((row) => {
-            row.addEventListener("click", (event) => {
-                if (event.target.closest("a, form, input")) return;
-                if (selectedRow) selectedRow.classList.remove("file-row-selected");
-                selectedRow = row;
-                selectedRow.classList.add("file-row-selected");
-                openRenameEntryButton.hidden = false;
-            });
+        const fileRegion = document.getElementById("file-region");
 
-            row.addEventListener("dblclick", () => {
-                if (row.dataset.entryFolder === "true") {
-                    window.location = `/?path=${encodeURIComponent(row.dataset.entryPath)}`;
-                }
+        function syncActiveDir(path) {
+            document.querySelectorAll('input[name="path"]').forEach((el) => { el.value = path; });
+        }
+
+        function navigateTo(path) {
+            htmx.ajax("GET", `/?path=${encodeURIComponent(path)}`, { target: "#file-region", swap: "innerHTML" });
+            history.pushState({ path }, "", `/?path=${encodeURIComponent(path)}`);
+            syncActiveDir(path);
+        }
+
+        fileRegion.addEventListener("click", (event) => {
+            const breadcrumb = event.target.closest(".breadcrumb-link");
+            if (breadcrumb && !breadcrumb.classList.contains("breadcrumb-current")) {
+                const url = new URL(breadcrumb.href);
+                syncActiveDir(url.searchParams.get("path") || "/");
+                return;
+            }
+            const row = event.target.closest(".file-row-selectable");
+            if (!row || event.target.closest("a, form, input, button")) return;
+            if (selectedRow) selectedRow.classList.remove("file-row-selected");
+            selectedRow = row;
+            selectedRow.classList.add("file-row-selected");
+            openRenameEntryButton.hidden = false;
+        });
+
+        fileRegion.addEventListener("dblclick", (event) => {
+            const row = event.target.closest(".file-row-selectable");
+            if (!row || row.dataset.entryFolder !== "true") return;
+            navigateTo(row.dataset.entryPath);
+        });
+
+        window.addEventListener("popstate", () => {
+            const p = new URL(location.href).searchParams.get("path") || "/";
+            htmx.ajax("GET", `/?path=${encodeURIComponent(p)}`, { target: "#file-region", swap: "innerHTML" });
+            syncActiveDir(p);
+        });
+
+        document.body.addEventListener("htmx:afterSwap", (e) => {
+            if (e.target.id === "file-region") {
+                selectedRow = null;
+                openRenameEntryButton.hidden = true;
+            }
+        });
+
+        [createFolderModal, renameEntryModal].forEach((modal) => {
+            modal?.querySelector("form")?.addEventListener("htmx:afterRequest", (e) => {
+                if (e.detail.successful) modal.hidden = true;
             });
         });
     </script>

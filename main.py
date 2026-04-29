@@ -202,6 +202,24 @@ def buildParentPath(path):
     return "/" + "/".join(segments[:-1]) + "/"
 
 
+def fileRegionResponse(request, active_dir, error_message=None):
+    blobs = buildExplorerEntries(list_entries(active_dir))
+    response = templates.TemplateResponse('_file_region.html', {
+        'request': request,
+        'active_dir': active_dir,
+        'parent_dir': buildParentPath(active_dir),
+        'blobs': blobs,
+        'user_token': True,
+        'error_message': error_message,
+    })
+    response.headers['HX-Push-Url'] = f"/?path={active_dir}"
+    return response
+
+
+def isHtmxRequest(request):
+    return request.headers.get("HX-Request") == "true"
+
+
 
 # root of the application that will be responsible for login and logout and display the details of the user
 @app.get("/", response_class=HTMLResponse)
@@ -218,6 +236,10 @@ async def root(request: Request):
         return templates.TemplateResponse('main.html', {'request': request, 'user_token': None, 'error_message': None, 'user_info': None, 'active_dir': active_dir, 'parent_dir': buildParentPath(active_dir), 'firebase_api_key': FIREBASE_API_KEY})
 
     user = getUser(user_token)
+
+    if isHtmxRequest(request):
+        return fileRegionResponse(request, active_dir, error_message=error_message)
+
     blobs = buildExplorerEntries(list_entries(active_dir))
 
     return templates.TemplateResponse('main.html', {
@@ -246,6 +268,8 @@ async def uploadFile(request: Request):
     uploaded_file = form['file_name']
 
     if uploaded_file.filename == '':
+        if isHtmxRequest(request):
+            return fileRegionResponse(request, active_dir)
         return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
     blob_name = buildBlobName(active_dir, uploaded_file.filename)
@@ -253,6 +277,8 @@ async def uploadFile(request: Request):
     blob_url = azure_container_client.get_blob_client(blob_name).url
     create_entry(uploaded_file.filename, active_dir, blob_url, blob_name)
 
+    if isHtmxRequest(request):
+        return fileRegionResponse(request, active_dir)
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
 
@@ -270,9 +296,13 @@ async def createFolder(request: Request):
     folder_name = form.get("folder_name", "").strip().strip("/")
 
     if not folder_name:
+        if isHtmxRequest(request):
+            return fileRegionResponse(request, active_dir)
         return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
     create_entry(folder_name, active_dir, "")
+    if isHtmxRequest(request):
+        return fileRegionResponse(request, active_dir)
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
 
@@ -290,9 +320,10 @@ async def renameFile(request: Request):
     entry_id = form.get("entry_id")
     new_name = form.get("new_name", "")
 
-    if not rename_entry(entry_id, new_name):
-        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+    rename_entry(entry_id, new_name)
 
+    if isHtmxRequest(request):
+        return fileRegionResponse(request, active_dir)
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
 
@@ -339,18 +370,26 @@ async def deleteFile(request: Request):
     entry_id = form.get("entry_id")
     entry = get_entry(entry_id)
     if not entry:
+        if isHtmxRequest(request):
+            return fileRegionResponse(request, active_dir)
         return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
     if entry["blob_url"] == "":
         if has_folder_children(entry["path"], entry["filename"]):
+            if isHtmxRequest(request):
+                return fileRegionResponse(request, active_dir, error_message="Folder is not empty")
             return RedirectResponse(f"/?path={active_dir}&error=Folder%20is%20not%20empty", status_code=status.HTTP_302_FOUND)
         delete_entry(entry_id)
+        if isHtmxRequest(request):
+            return fileRegionResponse(request, active_dir)
         return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
     delete_entry(entry_id)
     if count_blob_references(entry["blob_url"]) == 0:
         azure_container_client.delete_blob(buildBlobName(entry["path"], entry["filename"]))
 
+    if isHtmxRequest(request):
+        return fileRegionResponse(request, active_dir)
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
 
