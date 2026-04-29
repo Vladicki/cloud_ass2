@@ -36,10 +36,9 @@
 
             <nav class="mt-8 space-y-1 text-[15px]">
                 <a href="#dashboard" class="sidebar-link sidebar-link-active">Home</a>
-                <a href="#dashboard" class="sidebar-link">All files</a>
+                <a href="/tree?path={{ active_dir if user_token else '/' }}" class="sidebar-link">All files</a>
                 <!-- TODO:implement Recent as the section under file tree  -->
                 <!-- <a href="#summary" class="sidebar-link">Recents</a> -->
-                <a href="#summary" class="sidebar-link">Shared</a>
                 <a href="#summary" class="sidebar-link sidebar-link-muted">Deleted files</a>
             </nav>
 
@@ -323,7 +322,7 @@
                     </div>
 
                     <div id="file-region" class="min-w-0 space-y-3 md:order-1">
-                        {% include "_file_region.html" %}
+                        {% include "_file_manager_region.html" %}
                     </div>
                 </section>
                 {% endif %}

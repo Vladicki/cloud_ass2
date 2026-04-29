@@ -225,9 +225,29 @@ def buildParentPath(path):
     return "/" + "/".join(segments[:-1]) + "/"
 
 
+
+def buildTreeNodes(path):
+    nodes = []
+    entries = buildExplorerEntries(list_entries(path))
+    entries.sort(key=lambda entry: (not entry["is_folder"], entry["display_name"].lower(), entry["display_name"]))
+
+    for entry in entries:
+        node = {
+            "id": entry["id"],
+            "name": entry["display_name"],
+            "is_folder": entry["is_folder"],
+            "path": entry["path"],
+            "next_path": entry["next_path"],
+            "children": buildTreeNodes(entry["next_path"]) if entry["is_folder"] else [],
+        }
+        nodes.append(node)
+
+    return nodes
+
+
 def fileRegionResponse(request, active_dir, error_message=None):
     blobs = buildExplorerEntries(list_entries(active_dir))
-    response = templates.TemplateResponse('_file_region.html', {
+    response = templates.TemplateResponse('_file_manager_region.html', {
         'request': request,
         'active_dir': active_dir,
         'parent_dir': buildParentPath(active_dir),
@@ -358,6 +378,25 @@ async def renameFile(request: Request):
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir)
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/tree", response_class=HTMLResponse)
+async def treePage(request: Request):
+    print("treePage called")
+    id_token = request.cookies.get('token')
+    user_token = validateFirebaseToken(id_token)
+    if not user_token:
+        return RedirectResponse("/")
+
+    active_dir = normalize_path(request.query_params.get("path", "/"))
+    tree_nodes = buildTreeNodes(active_dir)
+    return templates.TemplateResponse('tree.html', {
+        'request': request,
+        'user_token': user_token,
+        'active_dir': active_dir,
+        'parent_dir': buildParentPath(active_dir),
+        'tree_nodes': tree_nodes,
+    })
 
 
 @app.get("/open/{entry_id}")

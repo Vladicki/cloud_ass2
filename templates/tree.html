@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tree View</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=16" rel="stylesheet" />
+</head>
+
+<body class="bg-transparent text-[#f0f0f0] antialiased">
+    {% macro render_nodes(nodes) %}
+    {% if nodes %}
+    <ul class="tree-list space-y-3">
+        {% for node in nodes %}
+        <li>
+            {% if node.is_folder %}
+            <details class="tree-folder group" open>
+                <summary class="tree-summary flex cursor-pointer items-center gap-3 rounded-xl px-4 py-3 text-lg text-[#f0f0f0] hover:bg-white/5">
+                    <span class="tree-summary-chevron text-base text-white/55">▾</span>
+                    <span class="font-medium">{{ node.name }}</span>
+                </summary>
+                <div class="tree-children pl-7 pt-3">
+                    {{ render_nodes(node.children) }}
+                </div>
+            </details>
+            {% else %}
+            <a href="{{ url_for('openFile', entry_id=node.id) }}" target="_blank" rel="noopener"
+                class="tree-file flex items-center gap-3 rounded-xl px-4 py-3 text-lg text-[#8cb4ff] hover:bg-white/5 hover:text-white">
+                <span class="text-white/35">•</span>
+                <span class="break-all">{{ node.name }}</span>
+            </a>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p class="px-3 py-2 text-sm text-white/55">No files found in {{ active_dir }}.</p>
+    {% endif %}
+    {% endmacro %}
+
+    <div id="app-shell"
+        class="app-shell min-h-screen md:grid md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[250px_minmax(0,1fr)]">
+        <aside id="app-sidebar"
+            class="sidebar-shell flex flex-col border-b border-white/8 px-6 py-5 md:min-h-screen md:border-b-0 md:border-r">
+            <div class="flex items-center gap-3">
+                <button id="toggle-sidebar" class="icon-button hidden md:inline-flex" type="button"
+                    aria-label="Collapse sidebar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4">
+                        <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
+                    </svg>
+                </button>
+                <div>
+                    <p class="text-[1.5rem] font-semibold tracking-tight text-[#f0f0f0]">Vlad's Cloud</p>
+                </div>
+            </div>
+
+            <nav class="mt-8 space-y-1 text-[15px]">
+                <a href="/" class="sidebar-link">Home</a>
+                <a href="/tree?path={{ active_dir }}" class="sidebar-link sidebar-link-active">All files</a>
+                <a href="#summary" class="sidebar-link sidebar-link-muted">Deleted files</a>
+            </nav>
+        </aside>
+
+        <div class="min-w-0 bg-[#252321]">
+            <header class="topbar-shell border-b border-white/8 px-4 py-3 sm:px-6 lg:px-8">
+                <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                    <div class="flex items-center gap-3 text-[#f0f0f0]">
+                        <button class="icon-button md:hidden" type="button" aria-label="Navigation">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                class="h-4 w-4">
+                                <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
+                            </svg>
+                        </button>
+                        <button id="topbar-toggle-sidebar" class="icon-button hidden md:hidden" type="button"
+                            aria-label="Expand sidebar">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                class="h-4 w-4">
+                                <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
+                            </svg>
+                        </button>
+                        <div
+                            class="search-shell flex w-full items-center gap-3 rounded-full px-4 py-3 xl:min-w-[420px] xl:max-w-[460px]">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                class="h-4 w-4 text-[#f0f0f0]">
+                                <circle cx="11" cy="11" r="7"></circle>
+                                <path d="m20 20-3.5-3.5" stroke-linecap="round"></path>
+                            </svg>
+                            <input type="text" placeholder="Search"
+                                class="w-full bg-transparent text-sm text-[#f0f0f0] outline-none placeholder:text-[#f0f0f0]" />
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-3 self-end xl:self-auto">
+                        <button class="icon-button" type="button" aria-label="Help">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                class="h-4 w-4">
+                                <circle cx="12" cy="12" r="9"></circle>
+                                <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" stroke-linecap="round"></path>
+                                <path d="M12 17h.01" stroke-linecap="round"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <main class="dashboard-main px-4 py-5 sm:px-6 lg:px-8">
+                <div class="mx-auto max-w-7xl">
+                    <div class="summary-card rounded-[18px] p-8 lg:p-10">
+                        <div class="flex flex-wrap items-center justify-between gap-3 border-b border-white/8 pb-4">
+                            <div>
+                                <p class="text-sm text-white/55">Simple tree view</p>
+                                <h1 class="mt-1 text-2xl font-semibold text-[#f0f0f0]">All files tree</h1>
+                            </div>
+                            <div class="flex items-center gap-2">
+                                <a href="/" class="toolbar-button px-4 py-2 text-sm text-[#f0f0f0]">Back</a>
+                                {% if parent_dir %}
+                                <a href="/tree?path={{ parent_dir }}" class="toolbar-button px-4 py-2 text-sm text-[#f0f0f0]">Up</a>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="mt-6 rounded-[18px] border border-white/8 bg-[#191919] p-6 font-mono lg:p-8">
+                            <p class="mb-4 text-xs uppercase tracking-[0.14em] text-white/45">Current path {{ active_dir }}</p>
+                            {{ render_nodes(tree_nodes) }}
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script>
+        const appShell = document.getElementById("app-shell");
+        const toggleSidebarButton = document.getElementById("toggle-sidebar");
+        const topbarToggleSidebarButton = document.getElementById("topbar-toggle-sidebar");
+        const sidebarStorageKey = "ass2.sidebar.collapsed";
+
+        function setSidebarCollapsed(collapsed) {
+            appShell?.classList.toggle("sidebar-collapsed", collapsed);
+            toggleSidebarButton?.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+            topbarToggleSidebarButton?.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+            topbarToggleSidebarButton?.classList.toggle("md:hidden", !collapsed);
+            topbarToggleSidebarButton?.classList.toggle("md:inline-flex", collapsed);
+            localStorage.setItem(sidebarStorageKey, collapsed ? "true" : "false");
+        }
+
+        toggleSidebarButton?.addEventListener("click", () => {
+            setSidebarCollapsed(!appShell?.classList.contains("sidebar-collapsed"));
+        });
+
+        topbarToggleSidebarButton?.addEventListener("click", () => {
+            setSidebarCollapsed(false);
+        });
+
+        if (localStorage.getItem(sidebarStorageKey) === "true") setSidebarCollapsed(true);
+    </script>
+</body>
+
+</html>
