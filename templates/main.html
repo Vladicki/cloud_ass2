@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="icon"
         href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230056ff'/%3E%3Cpath d='M17 18l15 9-10 6-15-9zm15 9 15-9 10 6-15 9zm-10 8 10 6 10-6-10-6z' fill='white'/%3E%3C/svg%3E" />
-    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=7" rel="stylesheet" />
+    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=11" rel="stylesheet" />
     <script>
         window.FIREBASE_API_KEY = {{firebase_api_key | tojson}};
     </script>
@@ -84,22 +84,16 @@
                     <div>
                         <p class="text-sm text-[#f0f0f0]">Storage Vault</p>
                         <h1 class="mt-1 text-[2rem] font-semibold tracking-tight text-[#f0f0f0]">All files</h1>
-                        {% if user_token %}
-                        <div class="mt-2 flex items-center gap-3 text-sm text-[#f0f0f0]">
-                            <span>Current path: {{ active_dir }}</span>
-                            {% if parent_dir %}
-                            <a href="/?path={{ parent_dir }}" class="toolbar-button px-3 py-1.5 text-sm">Return</a>
-                            {% endif %}
-                        </div>
-                        {% endif %}
                     </div>
 
                     {% if user_token %}
                     <div class="flex flex-wrap items-center gap-2">
                         <label for="file_name"
                             class="toolbar-button toolbar-button-primary cursor-pointer px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Upload</label>
-                        <button type="button" id="open-create-folder" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]">Create Folder</button>
-                        <button type="button" id="open-rename-entry" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]" hidden>Rename selected</button>
+                        <button type="button" id="open-create-folder"
+                            class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]">Create Folder</button>
+                        <button type="button" id="open-rename-entry"
+                            class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]" hidden>Rename selected</button>
                     </div>
                     {% endif %}
                 </div>
@@ -126,7 +120,7 @@
                                     user_token %}{{ user_token.email }}{% else %}Guest{% endif %}</span>
                             </div>
                             <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
-                                <span class="text-[#f0f0f0]">Active dir</span>
+                                <span class="text-[#f0f0f0]">Current path:</span>
                                 <span class="font-medium text-[#f0f0f0]">{{ active_dir if user_token else "/" }}</span>
                             </div>
                             <div class="flex items-center justify-between gap-4">
@@ -206,8 +200,10 @@
                                     placeholder="Folder name" />
                             </div>
                             <div class="flex gap-3">
-                                <button type="submit" class="toolbar-button toolbar-button-primary px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Create</button>
-                                <button type="button" id="cancel-create-folder" class="toolbar-button px-5 py-2.5 text-sm text-[#f0f0f0]">Cancel</button>
+                                <button type="submit"
+                                    class="toolbar-button toolbar-button-primary px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Create</button>
+                                <button type="button" id="cancel-create-folder"
+                                    class="toolbar-button px-5 py-2.5 text-sm text-[#f0f0f0]">Cancel</button>
                             </div>
                         </form>
                     </div>
@@ -225,8 +221,10 @@
                                     placeholder="New name" />
                             </div>
                             <div class="flex gap-3">
-                                <button type="submit" class="toolbar-button toolbar-button-primary px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Rename</button>
-                                <button type="button" id="cancel-rename-entry" class="toolbar-button px-5 py-2.5 text-sm text-[#f0f0f0]">Cancel</button>
+                                <button type="submit"
+                                    class="toolbar-button toolbar-button-primary px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Rename</button>
+                                <button type="button" id="cancel-rename-entry"
+                                    class="toolbar-button px-5 py-2.5 text-sm text-[#f0f0f0]">Cancel</button>
                             </div>
                         </form>
                     </div>
@@ -254,76 +252,96 @@
                         {% endif %}
                     </div>
 
-                    <div class="table-shell overflow-hidden rounded-[18px]">
-                        <div
-                            class="file-table-header hidden grid-cols-[minmax(0,1.8fr)_190px_210px_120px_120px] gap-4 px-6 py-4 text-sm font-medium md:grid">
-                            <div>Name ↑</div>
-                            <div>Modified</div>
-                            <div>Who can access</div>
-                            <div>Size</div>
-                            <div></div>
-                        </div>
+                    <div class="min-w-0 space-y-3">
+                        {% set crumb_parts = active_dir.strip('/').split('/') if active_dir and active_dir != '/' else
+                        [] %}
+                        {% set ns = namespace(acc='') %}
+                        <nav class="breadcrumb-bar flex flex-wrap items-center gap-1 text-sm" aria-label="Current path">
+                            <a href="/?path=/"
+                                class="breadcrumb-link {{ 'breadcrumb-current' if not crumb_parts }}">Drive</a>
+                            {% for seg in crumb_parts %}
+                            {% set ns.acc = ns.acc + '/' + seg %}
+                            <span class="breadcrumb-sep" aria-hidden="true">/</span>
+                            <a href="/?path={{ ns.acc }}"
+                                class="breadcrumb-link {{ 'breadcrumb-current' if loop.last }}">{{ seg }}</a>
+                            {% endfor %}
+                        </nav>
 
-                        {% if blobs %}
-                        <div class="divide-y divide-slate-200">
-                            {% for blob in blobs %}
+                        <div class="table-shell overflow-hidden rounded-[18px]">
                             <div
-                                class="file-row file-row-selectable grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1.8fr)_190px_210px_120px_120px] md:px-6"
-                                data-entry-id="{{ blob.id }}"
-                                data-entry-name="{{ blob.display_name }}"
-                                data-entry-folder="{{ 'true' if blob.is_folder else 'false' }}"
-                                data-entry-path="{{ blob.next_path }}">
-                                <div class="min-w-0">
-                                    <div class="flex items-center gap-3">
-                                        <div class="file-icon" aria-hidden="true">
-                                            {% if blob.is_folder %}
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                stroke-width="1.7" class="h-4 w-4">
-                                                <path
-                                                    d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v7A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5z"
-                                                    stroke-linejoin="round"></path>
-                                            </svg>
-                                            {% else %}
-                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                                stroke-width="1.7" class="h-4 w-4">
-                                                <path
-                                                    d="M7 3.75h6.5L19 9.25v11A1.75 1.75 0 0 1 17.25 22h-10.5A1.75 1.75 0 0 1 5 20.25V5.5A1.75 1.75 0 0 1 6.75 3.75z"
-                                                    stroke-linejoin="round"></path>
-                                                <path d="M13 3.75v5.5h5.5" stroke-linejoin="round"></path>
-                                            </svg>
-                                            {% endif %}
-                                        </div>
-                                        <div class="min-w-0">
-                                            <button type="button"
-                                                class="file-entry-trigger block truncate text-left text-sm font-medium text-[#f0f0f0] hover:text-[#0057ff]">{{
-                                                blob.display_name }}</button>
-                                            <p class="mt-1 truncate text-xs text-[#f0f0f0]">{{ blob.kind }}</p>
+                                class="file-table-header hidden gap-4 px-6 py-4 text-sm font-medium md:grid md:grid-cols-[minmax(0,1fr)_110px_120px] lg:grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)_110px_120px] xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.1fr)_110px_120px]">
+                                <div>Name ↑</div>
+                                <div class="hidden lg:block">Modified</div>
+                                <div class="hidden xl:block">Who can access</div>
+                                <div>Size</div>
+                                <div></div>
+                            </div>
+
+                            {% if blobs %}
+                            <div class="divide-y divide-slate-200">
+                                {% for blob in blobs %}
+                                <div class="file-row file-row-selectable grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1fr)_110px_120px] md:px-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,0.9fr)_110px_120px] xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1.1fr)_110px_120px]"
+                                    data-entry-id="{{ blob.id }}" data-entry-name="{{ blob.display_name }}"
+                                    data-entry-folder="{{ 'true' if blob.is_folder else 'false' }}"
+                                    data-entry-path="{{ blob.next_path }}">
+                                    <div class="min-w-0">
+                                        <div class="flex items-center gap-3">
+                                            <div class="file-icon" aria-hidden="true">
+                                                {% if blob.is_folder %}
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                    stroke-width="1.7" class="h-4 w-4">
+                                                    <path
+                                                        d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v7A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5z"
+                                                        stroke-linejoin="round"></path>
+                                                </svg>
+                                                {% else %}
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                    stroke-width="1.7" class="h-4 w-4">
+                                                    <path
+                                                        d="M7 3.75h6.5L19 9.25v11A1.75 1.75 0 0 1 17.25 22h-10.5A1.75 1.75 0 0 1 5 20.25V5.5A1.75 1.75 0 0 1 6.75 3.75z"
+                                                        stroke-linejoin="round"></path>
+                                                    <path d="M13 3.75v5.5h5.5" stroke-linejoin="round"></path>
+                                                </svg>
+                                                {% endif %}
+                                            </div>
+                                            <div class="min-w-0">
+                                                <button type="button"
+                                                    class="file-entry-trigger block truncate text-left text-sm font-medium text-[#f0f0f0] hover:text-[#0057ff]">{{
+                                                    blob.display_name }}</button>
+                                                <p class="mt-1 truncate text-xs text-[#f0f0f0]">{{ blob.kind }}</p>
+                                            </div>
                                         </div>
                                     </div>
+                                    <div class="table-meta text-sm text-[#f0f0f0] md:hidden lg:block"
+                                        data-label="Modified">{{
+                                        blob.last_modified_label }}</div>
+                                    <div class="table-meta text-sm text-[#f0f0f0] md:hidden xl:block"
+                                        data-label="Who can access">Only you
+                                    </div>
+                                    <div class="table-meta text-sm text-[#f0f0f0]" data-label="Size">{{ blob.size_label
+                                        }}
+                                    </div>
+                                    <div class="flex items-center gap-2 md:justify-end">
+                                        {% if not blob.is_folder %}
+                                        <a href="{{ url_for('downloadFile', entry_id=blob.id) }}"
+                                            class="row-action">Download</a>
+                                        {% endif %}
+                                        <form action="/delete-file" method="post">
+                                            <input type="hidden" name="entry_id" value="{{ blob.id }}" />
+                                            <input type="hidden" name="path" value="{{ active_dir }}" />
+                                            <input type="submit" value="Delete"
+                                                class="row-action row-action-danger cursor-pointer" />
+                                        </form>
+                                    </div>
                                 </div>
-                                <div class="table-meta text-sm text-[#f0f0f0]" data-label="Modified">{{
-                                    blob.last_modified_label }}</div>
-                                <div class="table-meta text-sm text-[#f0f0f0]" data-label="Who can access">Only you
-                                </div>
-                                <div class="table-meta text-sm text-[#f0f0f0]" data-label="Size">{{ blob.size_label }}
-                                </div>
-                                <div class="flex items-center gap-2 md:justify-end">
-                                    {% if not blob.is_folder %}
-                                    <a href="{{ url_for('downloadFile', entry_id=blob.id) }}" class="row-action">Download</a>
-                                    {% endif %}
-                                    <form action="/delete-file" method="post">
-                                        <input type="hidden" name="entry_id" value="{{ blob.id }}" />
-                                        <input type="hidden" name="path" value="{{ active_dir }}" />
-                                        <input type="submit" value="Delete"
-                                            class="row-action row-action-danger cursor-pointer" />
-                                    </form>
-                                </div>
+                                {% endfor %}
                             </div>
-                            {% endfor %}
+                            {% else %}
+                            <div class="px-6 py-16 text-center text-sm text-[#f0f0f0]">No files found in {{ active_dir
+                                }}.
+                            </div>
+                            {% endif %}
                         </div>
-                        {% else %}
-                        <div class="px-6 py-16 text-center text-sm text-[#f0f0f0]">No files found in {{ active_dir }}.</div>
-                        {% endif %}
                     </div>
                 </section>
                 {% endif %}

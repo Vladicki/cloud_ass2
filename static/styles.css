@@ -248,11 +248,53 @@ input[type="file"]::file-selector-button:hover {
 
 .file-row-selectable {
   cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .file-row-selected {
-  background: #2b2b29;
-  box-shadow: inset 0 0 0 1px rgba(47, 111, 235, 0.55);
+  background: rgba(0, 87, 255, 0.12);
+  box-shadow: inset 3px 0 0 0 #0057ff;
+}
+
+.file-row-selected .file-entry-trigger {
+  color: #4d8bff;
+}
+
+.file-row-selected:hover {
+  background: #1c2540;
+  box-shadow: inset 3px 0 0 0 #4d8bff;
+}
+
+.file-row-selected:hover .file-entry-trigger,
+.file-row-selected:hover .table-meta {
+  color: #ffffff;
+}
+
+.breadcrumb-bar {
+  color: #f0f0f0;
+}
+
+.breadcrumb-link {
+  padding: 1px 6px;
+  border-radius: 6px;
+  color: rgba(240, 240, 240, 0.65);
+  transition: background 140ms ease, color 140ms ease;
+}
+
+.breadcrumb-link:hover {
+  background: rgba(0, 87, 255, 0.14);
+  color: #f0f0f0;
+}
+
+.breadcrumb-current {
+  background: rgba(0, 87, 255, 0.18);
+  color: #f0f0f0;
+  pointer-events: none;
+}
+
+.breadcrumb-sep {
+  color: rgba(240, 240, 240, 0.35);
 }
 
 .file-entry-trigger {
