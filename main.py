@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import os
 from io import BytesIO
 from azure.storage.blob import BlobServiceClient, AccessPolicy, ContainerSasPermissions, PublicAccess
-from db import user_collection, normalize_path, list_entries, create_entry, get_entry, delete_entry, count_blob_references, has_folder_children, folder_path
+from db import user_collection, normalize_path, list_entries, create_entry, get_entry, delete_entry, count_blob_references, has_folder_children, folder_path, rename_entry
 
 load_dotenv()
 
@@ -177,7 +177,7 @@ def buildExplorerEntries(entries):
             "name": entry["filename"],
             "display_name": entry["filename"],
             "url": entry["blob_url"],
-            "blob_name": buildBlobName(entry["path"], entry["filename"]),
+            "blob_name": entry.get("blob_name") or buildBlobName(entry["path"], entry["filename"]),
             "size_label": "--" if is_folder else "File",
             "last_modified_label": formatBlobModified(entry["createdAt_timestamp"]),
             "kind": "Folder" if is_folder else (extension or "File"),
@@ -251,7 +251,7 @@ async def uploadFile(request: Request):
     blob_name = buildBlobName(active_dir, uploaded_file.filename)
     azure_container_client.upload_blob(name=blob_name, data=uploaded_file.file.read(), overwrite=True)
     blob_url = azure_container_client.get_blob_client(blob_name).url
-    create_entry(uploaded_file.filename, active_dir, blob_url)
+    create_entry(uploaded_file.filename, active_dir, blob_url, blob_name)
 
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
@@ -276,14 +276,39 @@ async def createFolder(request: Request):
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
 
-@app.get("/download/{blob_name:path}")
-async def downloadFile(blob_name: str, request: Request):
-    print("downloadFile called", blob_name)
+@app.post("/rename-entry", response_class=RedirectResponse)
+async def renameFile(request: Request):
+    print("renameFile called")
+    id_token = request.cookies.get("token")
+    user_token = validateFirebaseToken(id_token)
+
+    if not user_token:
+        return RedirectResponse("/")
+
+    form = await request.form()
+    active_dir = normalize_path(form.get("path", "/"))
+    entry_id = form.get("entry_id")
+    new_name = form.get("new_name", "")
+
+    if not rename_entry(entry_id, new_name):
+        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+    return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/download/{entry_id}")
+async def downloadFile(entry_id: str, request: Request):
+    print("downloadFile called", entry_id)
     id_token = request.cookies.get("token")
     user_token = validateFirebaseToken(id_token)
     if not user_token:
         return RedirectResponse("/")
 
+    entry = get_entry(entry_id)
+    if not entry or entry["blob_url"] == "":
+        raise HTTPException(status_code=404, detail="File not found")
+
+    blob_name = entry.get("blob_name") or buildBlobName(entry["path"], entry["filename"])
     blob_client = azure_container_client.get_blob_client(blob_name)
 
     try:
@@ -292,13 +317,12 @@ async def downloadFile(blob_name: str, request: Request):
     except Exception:
         raise HTTPException(status_code=404, detail="File not found")
 
-    filename = blob_name.split("/")[-1] or blob_name
     content_type = properties.content_settings.content_type or "application/octet-stream"
 
     return StreamingResponse(
         BytesIO(download_stream.readall()),
         media_type=content_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": f'attachment; filename="{entry["filename"]}"'},
     )
 
 

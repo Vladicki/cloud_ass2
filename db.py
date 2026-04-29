@@ -4,6 +4,7 @@ from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from dotenv import load_dotenv
 import os
+import re
 
 load_dotenv()
 
@@ -27,13 +28,16 @@ def normalize_path(path):
     return clean_path
 
 
-def build_filetree_entry(filename, path, blob_url):
-    return {
+def build_filetree_entry(filename, path, blob_url, blob_name=None):
+    entry = {
         "filename": filename,
         "path": normalize_path(path),
         "blob_url": blob_url,
         "createdAt_timestamp": datetime.now(timezone.utc),
     }
+    if blob_name:
+        entry["blob_name"] = blob_name
+    return entry
 
 
 def serialize_entry(entry):
@@ -42,12 +46,13 @@ def serialize_entry(entry):
         "filename": entry["filename"],
         "path": entry["path"],
         "blob_url": entry["blob_url"],
+        "blob_name": entry.get("blob_name"),
         "createdAt_timestamp": entry["createdAt_timestamp"],
     }
 
 
-def create_entry(filename, path, blob_url):
-    entry = build_filetree_entry(filename, path, blob_url)
+def create_entry(filename, path, blob_url, blob_name=None):
+    entry = build_filetree_entry(filename, path, blob_url, blob_name)
     existing_entry = filetree_collection.find_one(
         {
             "filename": entry["filename"],
@@ -55,14 +60,15 @@ def create_entry(filename, path, blob_url):
         }
     )
     if existing_entry:
+        update_fields = {
+            "blob_url": entry["blob_url"],
+            "createdAt_timestamp": entry["createdAt_timestamp"],
+        }
+        if blob_name:
+            update_fields["blob_name"] = blob_name
         filetree_collection.update_one(
             {"_id": existing_entry["_id"]},
-            {
-                "$set": {
-                    "blob_url": entry["blob_url"],
-                    "createdAt_timestamp": entry["createdAt_timestamp"],
-                }
-            },
+            {"$set": update_fields},
         )
         return serialize_entry(filetree_collection.find_one({"_id": existing_entry["_id"]}))
 
@@ -117,3 +123,28 @@ def folder_path(parent_path, folder_name):
 
 def has_folder_children(parent_path, folder_name):
     return filetree_collection.count_documents({"path": folder_path(parent_path, folder_name)}) > 0
+
+
+def rename_entry(entry_id, new_name):
+    clean_name = re.sub(r"/+", "", new_name.strip())
+    if not clean_name:
+        return None
+
+    entry = get_entry(entry_id)
+    if not entry:
+        return None
+
+    old_folder_path = folder_path(entry["path"], entry["filename"]) if entry["blob_url"] == "" else None
+    new_folder_path = folder_path(entry["path"], clean_name) if entry["blob_url"] == "" else None
+
+    filetree_collection.update_one(
+        {"_id": ObjectId(entry_id)},
+        {"$set": {"filename": clean_name}},
+    )
+
+    if old_folder_path and new_folder_path and old_folder_path != new_folder_path:
+        child_entries = list(filetree_collection.find({"path": old_folder_path}))
+        for child_entry in child_entries:
+            filetree_collection.update_one({"_id": child_entry["_id"]}, {"$set": {"path": new_folder_path}})
+
+    return get_entry(entry_id)

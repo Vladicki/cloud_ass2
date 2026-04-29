@@ -85,10 +85,12 @@
                         <p class="text-sm text-[#f0f0f0]">Storage Vault</p>
                         <h1 class="mt-1 text-[2rem] font-semibold tracking-tight text-[#f0f0f0]">All files</h1>
                         {% if user_token %}
-                        <p class="mt-2 text-sm text-[#f0f0f0]">Current path: {{ active_dir }}</p>
-                        {% if parent_dir %}
-                        <a href="/?path={{ parent_dir }}" class="mt-2 inline-block text-sm text-[#0057ff] hover:underline">Back to parent</a>
-                        {% endif %}
+                        <div class="mt-2 flex items-center gap-3 text-sm text-[#f0f0f0]">
+                            <span>Current path: {{ active_dir }}</span>
+                            {% if parent_dir %}
+                            <a href="/?path={{ parent_dir }}" class="toolbar-button px-3 py-1.5 text-sm">Return</a>
+                            {% endif %}
+                        </div>
                         {% endif %}
                     </div>
 
@@ -96,13 +98,8 @@
                     <div class="flex flex-wrap items-center gap-2">
                         <label for="file_name"
                             class="toolbar-button toolbar-button-primary cursor-pointer px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Upload</label>
-                        <form action="/create-folder" method="post" class="flex items-center gap-2">
-                            <input type="hidden" name="path" value="{{ active_dir }}" />
-                            <input type="text" name="folder_name" placeholder="Folder name"
-                                class="ui-input h-[42px] w-[150px] text-sm" />
-                            <button type="submit" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]">Create
-                                Folder</button>
-                        </form>
+                        <button type="button" id="open-create-folder" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]">Create Folder</button>
+                        <button type="button" id="open-rename-entry" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]" hidden>Rename selected</button>
                     </div>
                     {% endif %}
                 </div>
@@ -198,6 +195,43 @@
                     </div>
                 </div>
                 {% else %}
+                <div id="create-folder-modal" hidden="true" class="login-modal">
+                    <div class="login-panel login-popup w-full max-w-[420px]">
+                        <p class="summary-label">Create folder</p>
+                        <form action="/create-folder" method="post" class="mt-6 space-y-4">
+                            <input type="hidden" name="path" value="{{ active_dir }}" />
+                            <div>
+                                <label class="ui-label" for="folder_name">Folder name</label>
+                                <input id="folder_name" type="text" name="folder_name" class="ui-input mt-2"
+                                    placeholder="Folder name" />
+                            </div>
+                            <div class="flex gap-3">
+                                <button type="submit" class="toolbar-button toolbar-button-primary px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Create</button>
+                                <button type="button" id="cancel-create-folder" class="toolbar-button px-5 py-2.5 text-sm text-[#f0f0f0]">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <div id="rename-entry-modal" hidden="true" class="login-modal">
+                    <div class="login-panel login-popup w-full max-w-[420px]">
+                        <p class="summary-label">Rename entry</p>
+                        <form action="/rename-entry" method="post" class="mt-6 space-y-4">
+                            <input type="hidden" name="path" value="{{ active_dir }}" />
+                            <input type="hidden" id="rename-entry-id" name="entry_id" value="" />
+                            <div>
+                                <label class="ui-label" for="rename_name">New name</label>
+                                <input id="rename_name" type="text" name="new_name" class="ui-input mt-2"
+                                    placeholder="New name" />
+                            </div>
+                            <div class="flex gap-3">
+                                <button type="submit" class="toolbar-button toolbar-button-primary px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Rename</button>
+                                <button type="button" id="cancel-rename-entry" class="toolbar-button px-5 py-2.5 text-sm text-[#f0f0f0]">Cancel</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
                 <section class="mt-6 grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
                     <div class="space-y-6">
                         <form action="/upload-file" method="post" enctype="multipart/form-data" class="hidden">
@@ -234,7 +268,11 @@
                         <div class="divide-y divide-slate-200">
                             {% for blob in blobs %}
                             <div
-                                class="file-row grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1.8fr)_190px_210px_120px_120px] md:px-6">
+                                class="file-row file-row-selectable grid gap-4 px-5 py-4 md:grid-cols-[minmax(0,1.8fr)_190px_210px_120px_120px] md:px-6"
+                                data-entry-id="{{ blob.id }}"
+                                data-entry-name="{{ blob.display_name }}"
+                                data-entry-folder="{{ 'true' if blob.is_folder else 'false' }}"
+                                data-entry-path="{{ blob.next_path }}">
                                 <div class="min-w-0">
                                     <div class="flex items-center gap-3">
                                         <div class="file-icon" aria-hidden="true">
@@ -256,15 +294,9 @@
                                             {% endif %}
                                         </div>
                                         <div class="min-w-0">
-                                            {% if blob.is_folder %}
-                                            <a href="/?path={{ blob.next_path }}"
-                                                class="block truncate text-sm font-medium text-[#f0f0f0] hover:text-[#0057ff]">{{
-                                                blob.display_name }}</a>
-                                            {% else %}
-                                            <a href="{{ blob.url }}" target="_blank" rel="noopener noreferrer"
-                                                class="block truncate text-sm font-medium text-[#f0f0f0] hover:text-[#0057ff]">{{
-                                                blob.display_name }}</a>
-                                            {% endif %}
+                                            <button type="button"
+                                                class="file-entry-trigger block truncate text-left text-sm font-medium text-[#f0f0f0] hover:text-[#0057ff]">{{
+                                                blob.display_name }}</button>
                                             <p class="mt-1 truncate text-xs text-[#f0f0f0]">{{ blob.kind }}</p>
                                         </div>
                                     </div>
@@ -277,7 +309,7 @@
                                 </div>
                                 <div class="flex items-center gap-2 md:justify-end">
                                     {% if not blob.is_folder %}
-                                    <a href="{{ url_for('downloadFile', blob_name=blob.blob_name) }}" class="row-action">Download</a>
+                                    <a href="{{ url_for('downloadFile', entry_id=blob.id) }}" class="row-action">Download</a>
                                     {% endif %}
                                     <form action="/delete-file" method="post">
                                         <input type="hidden" name="entry_id" value="{{ blob.id }}" />
@@ -298,6 +330,57 @@
             </main>
         </div>
     </div>
+    {% if user_token %}
+    <script>
+        const createFolderModal = document.getElementById("create-folder-modal");
+        const renameEntryModal = document.getElementById("rename-entry-modal");
+        const openCreateFolderButton = document.getElementById("open-create-folder");
+        const cancelCreateFolderButton = document.getElementById("cancel-create-folder");
+        const openRenameEntryButton = document.getElementById("open-rename-entry");
+        const cancelRenameEntryButton = document.getElementById("cancel-rename-entry");
+        const renameEntryIdInput = document.getElementById("rename-entry-id");
+        const renameNameInput = document.getElementById("rename_name");
+        let selectedRow = null;
+
+        openCreateFolderButton?.addEventListener("click", () => {
+            createFolderModal.hidden = false;
+            document.getElementById("folder_name")?.focus();
+        });
+
+        cancelCreateFolderButton?.addEventListener("click", () => {
+            createFolderModal.hidden = true;
+        });
+
+        cancelRenameEntryButton?.addEventListener("click", () => {
+            renameEntryModal.hidden = true;
+        });
+
+        openRenameEntryButton?.addEventListener("click", () => {
+            if (!selectedRow) return;
+            renameEntryIdInput.value = selectedRow.dataset.entryId;
+            renameNameInput.value = selectedRow.dataset.entryName;
+            renameEntryModal.hidden = false;
+            renameNameInput.focus();
+            renameNameInput.select();
+        });
+
+        document.querySelectorAll(".file-row-selectable").forEach((row) => {
+            row.addEventListener("click", (event) => {
+                if (event.target.closest("a, form, input")) return;
+                if (selectedRow) selectedRow.classList.remove("file-row-selected");
+                selectedRow = row;
+                selectedRow.classList.add("file-row-selected");
+                openRenameEntryButton.hidden = false;
+            });
+
+            row.addEventListener("dblclick", () => {
+                if (row.dataset.entryFolder === "true") {
+                    window.location = `/?path=${encodeURIComponent(row.dataset.entryPath)}`;
+                }
+            });
+        });
+    </script>
+    {% endif %}
 </body>
 
 </html>
