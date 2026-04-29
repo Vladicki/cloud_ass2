@@ -1,33 +1,20 @@
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import google.oauth2.id_token
 from google.auth.transport import requests
-from pymongo.mongo_client import MongoClient
-from pymongo.server_api import ServerApi
 import starlette.status as status
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 import os
-from bson import ObjectId
+from io import BytesIO
 from azure.storage.blob import BlobServiceClient, AccessPolicy, ContainerSasPermissions, PublicAccess
+from db import user_collection, normalize_path, list_entries, create_entry, get_entry, delete_entry, count_blob_references, has_folder_children, folder_path
 
 load_dotenv()
 
 FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY")
-
-#Setting up MongoDB connection
-uri = os.getenv("MONGO_URI")
-# Create a new client and connect to the server
-client = MongoClient(uri, server_api=ServerApi('1'))
-
-# Send a ping to confirm a successful connection to the database
-try:
-    client.admin.command('ping')
-    print("Pinged your deployment. You successfully connected to MongoDB!")
-except Exception as e:
-    print(type(e).__name__, str(e))                                                                                                                                              
 
 # connection string to azurite. Note that the credentials listed here are for the azurite server
 # if you were connecting to azure cloud storage services you would need to replace this with the
@@ -65,10 +52,6 @@ azure_container_client.set_container_access_policy(signed_identifiers=identifier
 
 # define the app that will contain all of our routing for FastAPI
 app = FastAPI()
-
-# open up a database in MongoDB and open the collections we will need
-db = client['queries']
-user_collection = db['users']
 
 # we need a request object to be able to talk to firebase for verifying user logins
 firebase_request_adapter = requests.Request()
@@ -175,96 +158,175 @@ def formatBlobModified(last_modified):
 
 
 
-def listBlobsWithUrls():
-    blobs = []
+def buildBlobName(path, filename):
+    active_dir = normalize_path(path)
+    if active_dir == "/":
+        return filename
+    return active_dir[1:] + filename
 
-    for blob in azure_container_client.list_blobs():
-        blob_client = azure_container_client.get_blob_client(blob.name)
-        display_name = blob.name.split('/')[-1] if '/' in blob.name else blob.name
-        is_folder = blob.name.endswith('/')
-        extension = display_name.rsplit('.', 1)[1].upper() if '.' in display_name and not is_folder else None
 
-        blobs.append({
-            "name": blob.name,
-            "display_name": display_name,
-            "url": blob_client.url,
-            "size": blob.size,
-            "size_label": formatBlobSize(blob.size),
-            "last_modified": blob.last_modified,
-            "last_modified_label": formatBlobModified(blob.last_modified),
+
+def buildExplorerEntries(entries):
+    explorer_entries = []
+
+    for entry in entries:
+        is_folder = entry["blob_url"] == ""
+        extension = entry["filename"].rsplit(".", 1)[1].upper() if "." in entry["filename"] and not is_folder else None
+        explorer_entries.append({
+            "id": entry["id"],
+            "name": entry["filename"],
+            "display_name": entry["filename"],
+            "url": entry["blob_url"],
+            "blob_name": buildBlobName(entry["path"], entry["filename"]),
+            "size_label": "--" if is_folder else "File",
+            "last_modified_label": formatBlobModified(entry["createdAt_timestamp"]),
             "kind": "Folder" if is_folder else (extension or "File"),
             "is_folder": is_folder,
+            "path": entry["path"],
+            "next_path": folder_path(entry["path"], entry["filename"]) if is_folder else entry["path"],
         })
 
-    return blobs
+    return explorer_entries
+
+
+
+def buildParentPath(path):
+    active_dir = normalize_path(path)
+    if active_dir == "/":
+        return None
+
+    segments = [segment for segment in active_dir.strip("/").split("/") if segment]
+    if len(segments) <= 1:
+        return "/"
+
+    return "/" + "/".join(segments[:-1]) + "/"
+
+
 
 # root of the application that will be responsible for login and logout and display the details of the user
 @app.get("/", response_class=HTMLResponse)
 async def root(request: Request):
     print("root called")
-    # query firebase for the request token. We will also declare a bunch of other variables here as we will need them
-    # for rendering the teplate at the end. We have an error_message there in case you want to output an error to
-    # the user in the template
     id_token = request.cookies.get('token')
-    error_message = 'No error here'
+    error_message = request.query_params.get("error")
     user_token = None
     user = None
+    active_dir = normalize_path(request.query_params.get("path", "/"))
 
-    # check if we have a valid firebase login, If not return the template with empty data as we will show the login box
     user_token = validateFirebaseToken(id_token)
     if not user_token:
-        return templates.TemplateResponse('main.html', {'request': request, 'user_token': None, 'error_message': None, 'user_info': None, 'firebase_api_key': FIREBASE_API_KEY})
+        return templates.TemplateResponse('main.html', {'request': request, 'user_token': None, 'error_message': None, 'user_info': None, 'active_dir': active_dir, 'parent_dir': buildParentPath(active_dir), 'firebase_api_key': FIREBASE_API_KEY})
 
-    # get the user document and also all of the blobs listed in azurite
     user = getUser(user_token)
-    print(listBlobs())
-    print(listBlobsWithUrls())
-    blobs = listBlobsWithUrls()
+    blobs = buildExplorerEntries(list_entries(active_dir))
 
-    # render the template
     return templates.TemplateResponse('main.html', {
         'request': request,
         'user_token': user_token,
         'error_message': error_message,
         'user_info': user,
         'blobs': blobs,
+        'active_dir': active_dir,
+        'parent_dir': buildParentPath(active_dir),
         'firebase_api_key': FIREBASE_API_KEY,
     })
-# route that will take in a file from the user and will upload it to the azurite storage service
+
+
 @app.post("/upload-file", response_class=RedirectResponse)
 async def uploadFile(request: Request):
     print("uploadFile called")
-    #Token Validation
-    # there should be a token. Validate it and if invalid redirect to /
     id_token = request.cookies.get("token")
     user_token = validateFirebaseToken(id_token)
 
     if not user_token:
         return RedirectResponse("/")
 
-    # if the filename is empty then redirect back to / and do nothing
     form = await request.form()
-    if form['file_name'].filename == '':
-        return RedirectResponse("/", status_code=status.HTTP_302_FOUND)
+    active_dir = normalize_path(form.get("path", "/"))
+    uploaded_file = form['file_name']
 
-    # add the file to azurite and redirect back to /
-    addFile(form['file_name'], form['path'])
-    return RedirectResponse("/", status_code=status.HTTP_302_FOUND)
+    if uploaded_file.filename == '':
+        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
-# route that will take in a filename from the user and will remove it from azurite
+    blob_name = buildBlobName(active_dir, uploaded_file.filename)
+    azure_container_client.upload_blob(name=blob_name, data=uploaded_file.file.read(), overwrite=True)
+    blob_url = azure_container_client.get_blob_client(blob_name).url
+    create_entry(uploaded_file.filename, active_dir, blob_url)
+
+    return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/create-folder", response_class=RedirectResponse)
+async def createFolder(request: Request):
+    print("createFolder called")
+    id_token = request.cookies.get("token")
+    user_token = validateFirebaseToken(id_token)
+
+    if not user_token:
+        return RedirectResponse("/")
+
+    form = await request.form()
+    active_dir = normalize_path(form.get("path", "/"))
+    folder_name = form.get("folder_name", "").strip().strip("/")
+
+    if not folder_name:
+        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+    create_entry(folder_name, active_dir, "")
+    return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/download/{blob_name:path}")
+async def downloadFile(blob_name: str, request: Request):
+    print("downloadFile called", blob_name)
+    id_token = request.cookies.get("token")
+    user_token = validateFirebaseToken(id_token)
+    if not user_token:
+        return RedirectResponse("/")
+
+    blob_client = azure_container_client.get_blob_client(blob_name)
+
+    try:
+        download_stream = blob_client.download_blob()
+        properties = blob_client.get_blob_properties()
+    except Exception:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    filename = blob_name.split("/")[-1] or blob_name
+    content_type = properties.content_settings.content_type or "application/octet-stream"
+
+    return StreamingResponse(
+        BytesIO(download_stream.readall()),
+        media_type=content_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @app.post("/delete-file", response_class=RedirectResponse)
 async def deleteFile(request: Request):
     print("deleteFile called")
-    # there should be a token. Validate it and if invalid redirect to /
     id_token = request.cookies.get("token")
     user_token = validateFirebaseToken(id_token)
     if not user_token:
         return RedirectResponse("/")
-    # get the filename, delete the file, and redirect back to / and do nothing
-    form = await request.form()
-    to_delete = form['filename']
-    azure_container_client.delete_blob(to_delete)
-    return RedirectResponse("/", status_code=status.HTTP_302_FOUND)
 
+    form = await request.form()
+    active_dir = normalize_path(form.get("path", "/"))
+    entry_id = form.get("entry_id")
+    entry = get_entry(entry_id)
+    if not entry:
+        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+    if entry["blob_url"] == "":
+        if has_folder_children(entry["path"], entry["filename"]):
+            return RedirectResponse(f"/?path={active_dir}&error=Folder%20is%20not%20empty", status_code=status.HTTP_302_FOUND)
+        delete_entry(entry_id)
+        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+    delete_entry(entry_id)
+    if count_blob_references(entry["blob_url"]) == 0:
+        azure_container_client.delete_blob(buildBlobName(entry["path"], entry["filename"]))
+
+    return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
 

@@ -84,24 +84,25 @@
                     <div>
                         <p class="text-sm text-[#f0f0f0]">Storage Vault</p>
                         <h1 class="mt-1 text-[2rem] font-semibold tracking-tight text-[#f0f0f0]">All files</h1>
+                        {% if user_token %}
+                        <p class="mt-2 text-sm text-[#f0f0f0]">Current path: {{ active_dir }}</p>
+                        {% if parent_dir %}
+                        <a href="/?path={{ parent_dir }}" class="mt-2 inline-block text-sm text-[#0057ff] hover:underline">Back to parent</a>
+                        {% endif %}
+                        {% endif %}
                     </div>
 
                     {% if user_token %}
                     <div class="flex flex-wrap items-center gap-2">
                         <label for="file_name"
                             class="toolbar-button toolbar-button-primary cursor-pointer px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Upload</label>
-                        <button type="button" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]">Create
-                            Folder</button>
-                        <button type="button" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]">Delete
-                            Folder</button>
-
-                        <button type="button" class="toolbar-button icon-button-square" aria-label="More options">
-                            <svg viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4">
-                                <circle cx="5" cy="12" r="1.8"></circle>
-                                <circle cx="12" cy="12" r="1.8"></circle>
-                                <circle cx="19" cy="12" r="1.8"></circle>
-                            </svg>
-                        </button>
+                        <form action="/create-folder" method="post" class="flex items-center gap-2">
+                            <input type="hidden" name="path" value="{{ active_dir }}" />
+                            <input type="text" name="folder_name" placeholder="Folder name"
+                                class="ui-input h-[42px] w-[150px] text-sm" />
+                            <button type="submit" class="toolbar-button px-4 py-2.5 text-sm text-[#f0f0f0]">Create
+                                Folder</button>
+                        </form>
                     </div>
                     {% endif %}
                 </div>
@@ -126,6 +127,10 @@
                                 <span class="text-[#f0f0f0]">User</span>
                                 <span class="max-w-[150px] truncate text-right font-medium text-[#f0f0f0]">{% if
                                     user_token %}{{ user_token.email }}{% else %}Guest{% endif %}</span>
+                            </div>
+                            <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                <span class="text-[#f0f0f0]">Active dir</span>
+                                <span class="font-medium text-[#f0f0f0]">{{ active_dir if user_token else "/" }}</span>
                             </div>
                             <div class="flex items-center justify-between gap-4">
                                 <span class="text-[#f0f0f0]">Visibility</span>
@@ -196,7 +201,7 @@
                 <section class="mt-6 grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
                     <div class="space-y-6">
                         <form action="/upload-file" method="post" enctype="multipart/form-data" class="hidden">
-                            <input id="path" type="hidden" name="path" value="" />
+                            <input id="path" type="hidden" name="path" value="{{ active_dir }}" />
                             <input id="file_name" type="file" name="file_name" class="hidden"
                                 onchange="if (this.files.length) this.form.submit();" />
                         </form>
@@ -204,11 +209,15 @@
                         <div class="summary-card p-5">
                             <p class="text-base font-semibold text-[#f0f0f0]">Note</p>
                             <ul class="mt-4 space-y-3 text-sm leading-6 text-[#f0f0f0]">
-                                <li>Open opens blob URL</li>
-                                <li>Delete removes selected blob from storage (for now) TODO implememnt Trash bin</li>
-                                <li>Rows show size and modified metadata</li>
+                                <li>Folders use MongoDB metadata with empty blob URL</li>
+                                <li>Uploads attach to current active dir</li>
+                                <li>Blob delete runs only when no other filetree entry uses same blob URL</li>
                             </ul>
                         </div>
+
+                        {% if error_message %}
+                        <div class="summary-card p-5 text-sm text-red-300">{{ error_message }}</div>
+                        {% endif %}
                     </div>
 
                     <div class="table-shell overflow-hidden rounded-[18px]">
@@ -247,9 +256,15 @@
                                             {% endif %}
                                         </div>
                                         <div class="min-w-0">
-                                            <a href="{{ blob.url }}"
+                                            {% if blob.is_folder %}
+                                            <a href="/?path={{ blob.next_path }}"
                                                 class="block truncate text-sm font-medium text-[#f0f0f0] hover:text-[#0057ff]">{{
-                                                blob.display_name or blob.name }}</a>
+                                                blob.display_name }}</a>
+                                            {% else %}
+                                            <a href="{{ blob.url }}" target="_blank" rel="noopener noreferrer"
+                                                class="block truncate text-sm font-medium text-[#f0f0f0] hover:text-[#0057ff]">{{
+                                                blob.display_name }}</a>
+                                            {% endif %}
                                             <p class="mt-1 truncate text-xs text-[#f0f0f0]">{{ blob.kind }}</p>
                                         </div>
                                     </div>
@@ -261,10 +276,12 @@
                                 <div class="table-meta text-sm text-[#f0f0f0]" data-label="Size">{{ blob.size_label }}
                                 </div>
                                 <div class="flex items-center gap-2 md:justify-end">
-                                    <a href="{{ blob.url }}" class="row-action"
-                                        download="{{ blob.display_name or blob.name }}">Download</a>
+                                    {% if not blob.is_folder %}
+                                    <a href="{{ url_for('downloadFile', blob_name=blob.blob_name) }}" class="row-action">Download</a>
+                                    {% endif %}
                                     <form action="/delete-file" method="post">
-                                        <input type="hidden" name="filename" value="{{ blob.name }}" />
+                                        <input type="hidden" name="entry_id" value="{{ blob.id }}" />
+                                        <input type="hidden" name="path" value="{{ active_dir }}" />
                                         <input type="submit" value="Delete"
                                             class="row-action row-action-danger cursor-pointer" />
                                     </form>
@@ -273,8 +290,7 @@
                             {% endfor %}
                         </div>
                         {% else %}
-                        <div class="px-6 py-16 text-center text-sm text-[#f0f0f0]">No files found yet. Upload first
-                            object to populate dashboard.</div>
+                        <div class="px-6 py-16 text-center text-sm text-[#f0f0f0]">No files found in {{ active_dir }}.</div>
                         {% endif %}
                     </div>
                 </section>

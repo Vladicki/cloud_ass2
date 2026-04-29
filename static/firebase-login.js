@@ -52,8 +52,11 @@ window.addEventListener("load", async function () {
 
     if (cookieToken !== token) {
       document.cookie = "token=" + token + ";path=/;SameSite=Strict";
-      window.location = "/";
-      return;
+
+      if (cookieToken.length === 0) {
+        window.location = "/";
+        return;
+      }
     }
 
     updateUI(document.cookie);
@@ -180,7 +183,7 @@ function parseCookieToken(cookie) {
   for (let i = 0; i < strings.length; i++) {
     // split the string based on the = sign. if the LHS is token then return the RHS immediately
     var temp = strings[i].split("=");
-    if (temp[0] == "token") return temp[1];
+    if (temp[0].trim() == "token") return temp.slice(1).join("=");
   }
 
   // if we get to this point then the token wasn't in the cookie so return the empty string
