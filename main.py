@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import os
 from io import BytesIO
 from azure.storage.blob import BlobServiceClient, AccessPolicy, ContainerSasPermissions, PublicAccess
-from db import user_collection, normalize_path, list_entries, create_entry, get_entry, delete_entry, count_blob_references, has_folder_children, folder_path, rename_entry, touch_entry_opened, touch_entry_opened_by_path, compute_folder_size, record_visit, record_folder_visit_by_path, list_recent_visits
+from db import user_collection, normalize_path, list_entries, create_entry, get_entry, folder_path, rename_entry, touch_entry_opened, touch_entry_opened_by_path, compute_folder_size, record_visit, record_folder_visit_by_path, list_recent_visits, list_trash_entries, move_entry_to_trash, move_folder_tree_to_trash, restore_trash_entry, purge_trash_entry
 
 load_dotenv()
 
@@ -245,8 +245,8 @@ def buildTreeNodes(path):
     return nodes
 
 
-def fileRegionResponse(request, active_dir, error_message=None):
-    blobs = buildExplorerEntries(list_entries(active_dir))
+def fileRegionResponse(request, active_dir, error_message=None, view_mode="files"):
+    blobs = buildExplorerEntries(list_entries(active_dir)) if view_mode == "files" else buildExplorerEntries(list_trash_entries())
     response = templates.TemplateResponse('_file_manager_region.html', {
         'request': request,
         'active_dir': active_dir,
@@ -254,8 +254,9 @@ def fileRegionResponse(request, active_dir, error_message=None):
         'blobs': blobs,
         'user_token': True,
         'error_message': error_message,
+        'view_mode': view_mode,
     })
-    response.headers['HX-Push-Url'] = f"/?path={active_dir}"
+    response.headers['HX-Push-Url'] = f"/?path={active_dir}" if view_mode == "files" else "/deleted-files"
     return response
 
 
@@ -276,7 +277,7 @@ async def root(request: Request):
 
     user_token = validateFirebaseToken(id_token)
     if not user_token:
-        return templates.TemplateResponse('main.html', {'request': request, 'user_token': None, 'error_message': None, 'user_info': None, 'active_dir': active_dir, 'parent_dir': buildParentPath(active_dir), 'firebase_api_key': FIREBASE_API_KEY, 'recent_visits': []})
+        return templates.TemplateResponse('main.html', {'request': request, 'user_token': None, 'error_message': None, 'user_info': None, 'active_dir': active_dir, 'parent_dir': buildParentPath(active_dir), 'firebase_api_key': FIREBASE_API_KEY, 'recent_visits': [], 'view_mode': 'files', 'page_title': 'All files'})
 
     user = getUser(user_token)
 
@@ -303,6 +304,8 @@ async def root(request: Request):
         'parent_dir': buildParentPath(active_dir),
         'firebase_api_key': FIREBASE_API_KEY,
         'recent_visits': recent_visits,
+        'view_mode': 'files',
+        'page_title': 'All files',
     })
 
 
@@ -378,6 +381,36 @@ async def renameFile(request: Request):
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir)
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/deleted-files", response_class=HTMLResponse)
+async def deletedFiles(request: Request):
+    print("deletedFiles called")
+    id_token = request.cookies.get('token')
+    user_token = validateFirebaseToken(id_token)
+    if not user_token:
+        return RedirectResponse("/")
+
+    user = getUser(user_token)
+    recent_visits = buildRecentVisits(list_recent_visits(user_token["user_id"]))
+    trash_entries = buildExplorerEntries(list_trash_entries())
+
+    if isHtmxRequest(request):
+        return fileRegionResponse(request, "/", view_mode="trash")
+
+    return templates.TemplateResponse('main.html', {
+        'request': request,
+        'user_token': user_token,
+        'error_message': None,
+        'user_info': user,
+        'blobs': trash_entries,
+        'active_dir': '/',
+        'parent_dir': None,
+        'firebase_api_key': FIREBASE_API_KEY,
+        'recent_visits': recent_visits,
+        'view_mode': 'trash',
+        'page_title': 'Deleted files',
+    })
 
 
 @app.get("/tree", response_class=HTMLResponse)
@@ -466,21 +499,46 @@ async def deleteFile(request: Request):
         return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
     if entry["blob_url"] == "":
-        if has_folder_children(entry["path"], entry["filename"]):
-            if isHtmxRequest(request):
-                return fileRegionResponse(request, active_dir, error_message="Folder is not empty")
-            return RedirectResponse(f"/?path={active_dir}&error=Folder%20is%20not%20empty", status_code=status.HTTP_302_FOUND)
-        delete_entry(entry_id)
-        if isHtmxRequest(request):
-            return fileRegionResponse(request, active_dir)
-        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
-
-    delete_entry(entry_id)
-    if count_blob_references(entry["blob_url"]) == 0:
-        azure_container_client.delete_blob(buildBlobName(entry["path"], entry["filename"]))
+        move_folder_tree_to_trash(entry_id)
+    else:
+        move_entry_to_trash(entry_id)
 
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir)
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/restore-entry", response_class=RedirectResponse)
+async def restoreEntry(request: Request):
+    print("restoreEntry called")
+    id_token = request.cookies.get("token")
+    user_token = validateFirebaseToken(id_token)
+    if not user_token:
+        return RedirectResponse("/")
+
+    form = await request.form()
+    entry_id = form.get("entry_id")
+    restore_trash_entry(entry_id)
+
+    if isHtmxRequest(request):
+        return fileRegionResponse(request, "/", view_mode="trash")
+    return RedirectResponse("/deleted-files", status_code=status.HTTP_302_FOUND)
+
+
+@app.post("/delete-permanently", response_class=RedirectResponse)
+async def deletePermanently(request: Request):
+    print("deletePermanently called")
+    id_token = request.cookies.get("token")
+    user_token = validateFirebaseToken(id_token)
+    if not user_token:
+        return RedirectResponse("/")
+
+    form = await request.form()
+    entry_id = form.get("entry_id")
+    purge_trash_entry(entry_id)
+
+    if isHtmxRequest(request):
+        return fileRegionResponse(request, "/", view_mode="trash")
+    return RedirectResponse("/deleted-files", status_code=status.HTTP_302_FOUND)
 
 

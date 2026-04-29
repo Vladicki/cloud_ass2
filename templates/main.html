@@ -36,10 +36,10 @@
 
             <nav class="mt-8 space-y-1 text-[15px]">
                 <a href="#dashboard" class="sidebar-link sidebar-link-active">Home</a>
-                <a href="/tree?path={{ active_dir if user_token else '/' }}" class="sidebar-link">All files</a>
+                <a href="/?path={{ active_dir if user_token else '/' }}" class="sidebar-link {{ 'sidebar-link-active' if view_mode == 'files' else '' }}">All files</a>
                 <!-- TODO:implement Recent as the section under file tree  -->
                 <!-- <a href="#summary" class="sidebar-link">Recents</a> -->
-                <a href="#summary" class="sidebar-link sidebar-link-muted">Deleted files</a>
+                <a href="/deleted-files" class="sidebar-link {{ 'sidebar-link-active' if view_mode == 'trash' else '' }}">Deleted files</a>
             </nav>
 
         </aside>
@@ -92,10 +92,10 @@
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                     <div>
                         <p class="text-sm text-[#f0f0f0]">Storage Vault</p>
-                        <h1 class="mt-1 text-[2rem] font-semibold tracking-tight text-[#f0f0f0]">All files</h1>
+                        <h1 class="mt-1 text-[2rem] font-semibold tracking-tight text-[#f0f0f0]">{{ page_title }}</h1>
                     </div>
 
-                    {% if user_token %}
+                    {% if user_token and view_mode == 'files' %}
                     <div class="flex flex-wrap items-center gap-2">
                         <label for="file_name"
                             class="toolbar-button toolbar-button-primary cursor-pointer px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Upload</label>
@@ -112,7 +112,7 @@
                     <div class="summary-card p-4">
                         <article>
                             <p class="summary-label">Recent files</p>
-                            <p class="mt-2 text-2xl font-semibold text-[#f0f0f0]">{{ recent_visits|length }}</p>
+                            <p id="recent-visits-count" class="mt-2 text-2xl font-semibold text-[#f0f0f0]">{{ recent_visits|length }}</p>
                             <p class="mt-1 text-xs text-white/55">Latest visited files and folders</p>
                         </article>
                         <div id="recent-visits-list" class="mt-4 flex flex-wrap gap-3">
@@ -343,6 +343,7 @@
         const toggleSidebarButton = document.getElementById("toggle-sidebar");
         const topbarToggleSidebarButton = document.getElementById("topbar-toggle-sidebar");
         const recentVisitsList = document.getElementById("recent-visits-list");
+        const recentVisitsCount = document.getElementById("recent-visits-count");
         let selectedRow = null;
 
         const sidebarStorageKey = "ass2.sidebar.collapsed";
@@ -482,10 +483,29 @@
             while (recentVisitsList.querySelectorAll(".recent-visit-button").length > 8) {
                 recentVisitsList.lastElementChild?.remove();
             }
+            syncRecentVisitsCount();
         }
 
         function hidePreview() {
             previewCard.hidden = true;
+        }
+
+        function syncRecentVisitsCount() {
+            if (!recentVisitsCount || !recentVisitsList) return;
+            recentVisitsCount.textContent = String(recentVisitsList.querySelectorAll(".recent-visit-button").length);
+        }
+
+        function removeRecentVisit(path, name) {
+            if (!recentVisitsList) return;
+            const key = `${path}::${name}`;
+            recentVisitsList.querySelectorAll(".recent-visit-button").forEach((item) => {
+                const itemKey = `${item.dataset.entryPath}::${item.dataset.entryName}`;
+                if (itemKey === key) item.remove();
+            });
+            if (!recentVisitsList.querySelector(".recent-visit-button")) {
+                recentVisitsList.innerHTML = '<div id="recent-visits-empty" class="rounded-xl border border-dashed border-white/10 px-3 py-6 text-sm text-white/55">No recent files or folders yet.</div>';
+            }
+            syncRecentVisitsCount();
         }
 
         previewCloseButton?.addEventListener("click", hidePreview);
@@ -502,7 +522,7 @@
             if (selectedRow) selectedRow.classList.remove("file-row-selected");
             selectedRow = row;
             selectedRow.classList.add("file-row-selected");
-            openRenameEntryButton.hidden = false;
+            if (openRenameEntryButton) openRenameEntryButton.hidden = false;
             showPreview(row);
         });
 
@@ -511,6 +531,7 @@
             if (!row || event.target.closest("a, form, input, button")) return;
             const visited = formatOpenedLabel();
             if (row.dataset.entryFolder === "true") {
+                if (row.dataset.viewMode === "trash") return;
                 pendingPreview = snapshotRow(row);
                 upsertRecentVisit({
                     entryId: row.dataset.entryId,
@@ -573,13 +594,23 @@
         document.body.addEventListener("htmx:afterSwap", (e) => {
             if (e.target.id === "file-region") {
                 selectedRow = null;
-                openRenameEntryButton.hidden = true;
+                if (openRenameEntryButton) openRenameEntryButton.hidden = true;
                 if (pendingPreview) {
                     applyPreview(pendingPreview);
                     pendingPreview = null;
                 } else {
                     hidePreview();
                 }
+            }
+        });
+
+        document.body.addEventListener("htmx:afterRequest", (e) => {
+            const form = e.target.closest("form");
+            if (!form || !e.detail.successful) return;
+            if (form.action.endsWith("/delete-file")) {
+                const row = form.closest(".file-row-selectable");
+                if (!row) return;
+                removeRecentVisit(row.dataset.entryPath, row.dataset.entryName);
             }
         });
 
