@@ -13,6 +13,7 @@ client = MongoClient(uri, server_api=ServerApi("1"))
 db = client["queries"]
 user_collection = db["users"]
 filetree_collection = db["filetree"]
+visited_history_collection = db["visited_history"]
 
 
 def normalize_path(path):
@@ -97,6 +98,56 @@ def touch_entry_opened_by_path(parent_path, folder_name):
         {"path": normalize_path(parent_path), "filename": folder_name, "blob_url": ""},
         {"$set": {"opened_timestamp": datetime.now(timezone.utc)}},
     )
+
+
+def build_visit_entry(user_id, entry):
+    is_folder = entry["blob_url"] == ""
+    return {
+        "user_id": user_id,
+        "entry_id": entry["id"],
+        "filename": entry["filename"],
+        "path": entry["path"],
+        "blob_url": entry["blob_url"],
+        "is_folder": is_folder,
+        "kind": "Folder" if is_folder else (entry["filename"].rsplit(".", 1)[1].upper() if "." in entry["filename"] else "File"),
+        "visited_at": datetime.now(timezone.utc),
+    }
+
+
+def record_visit(user_id, entry):
+    visited_history_collection.insert_one(build_visit_entry(user_id, entry))
+
+
+def record_folder_visit_by_path(user_id, parent_path, folder_name):
+    entry = get_entry_by_name_path(folder_name, parent_path)
+    if not entry or entry["blob_url"] != "":
+        return None
+    record_visit(user_id, entry)
+    return entry
+
+
+def list_recent_visits(user_id, limit=8):
+    visits = []
+    seen = set()
+
+    for visit in visited_history_collection.find({"user_id": user_id}).sort("visited_at", -1).limit(limit * 10):
+        key = (visit.get("path", "/"), visit["filename"])
+        if key in seen:
+            continue
+        seen.add(key)
+        visits.append({
+            "entry_id": visit.get("entry_id"),
+            "filename": visit["filename"],
+            "path": visit["path"],
+            "blob_url": visit.get("blob_url", ""),
+            "is_folder": visit.get("is_folder", False),
+            "kind": visit.get("kind", "Folder" if visit.get("is_folder") else "File"),
+            "visited_at": visit["visited_at"],
+        })
+        if len(visits) >= limit:
+            break
+
+    return visits
 
 
 def compute_folder_size(parent_path, folder_name):

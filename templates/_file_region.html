@@ -32,6 +32,7 @@
             data-entry-id="{{ blob.id }}" data-entry-name="{{ blob.display_name }}"
             data-entry-folder="{{ 'true' if blob.is_folder else 'false' }}"
             data-entry-path="{{ blob.next_path }}"
+            data-entry-open-url="{{ url_for('openFile', entry_id=blob.id) if not blob.is_folder else '' }}"
             data-entry-kind="{{ blob.kind }}"
             data-entry-modified="{{ blob.last_modified_label }}"
             data-entry-opened="{{ blob.opened_label }}"

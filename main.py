@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 import os
 from io import BytesIO
 from azure.storage.blob import BlobServiceClient, AccessPolicy, ContainerSasPermissions, PublicAccess
-from db import user_collection, normalize_path, list_entries, create_entry, get_entry, delete_entry, count_blob_references, has_folder_children, folder_path, rename_entry, touch_entry_opened, touch_entry_opened_by_path, compute_folder_size
+from db import user_collection, normalize_path, list_entries, create_entry, get_entry, delete_entry, count_blob_references, has_folder_children, folder_path, rename_entry, touch_entry_opened, touch_entry_opened_by_path, compute_folder_size, record_visit, record_folder_visit_by_path, list_recent_visits
 
 load_dotenv()
 
@@ -158,6 +158,25 @@ def formatBlobModified(last_modified):
 
 
 
+def buildRecentVisits(visits):
+    recent_visits = []
+
+    for visit in visits:
+        recent_visits.append({
+            "entry_id": visit.get("entry_id"),
+            "display_name": visit["filename"],
+            "kind": visit["kind"],
+            "is_folder": visit["is_folder"],
+            "path": visit["path"],
+            "next_path": folder_path(visit["path"], visit["filename"]) if visit["is_folder"] else visit["path"],
+            "open_url": f"/open/{visit['entry_id']}" if visit.get("entry_id") and not visit["is_folder"] else "",
+            "visited_label": formatBlobModified(visit.get("visited_at")),
+            "location_label": visit["path"],
+        })
+
+    return recent_visits
+
+
 def buildBlobName(path, filename):
     active_dir = normalize_path(path)
     if active_dir == "/":
@@ -237,7 +256,7 @@ async def root(request: Request):
 
     user_token = validateFirebaseToken(id_token)
     if not user_token:
-        return templates.TemplateResponse('main.html', {'request': request, 'user_token': None, 'error_message': None, 'user_info': None, 'active_dir': active_dir, 'parent_dir': buildParentPath(active_dir), 'firebase_api_key': FIREBASE_API_KEY})
+        return templates.TemplateResponse('main.html', {'request': request, 'user_token': None, 'error_message': None, 'user_info': None, 'active_dir': active_dir, 'parent_dir': buildParentPath(active_dir), 'firebase_api_key': FIREBASE_API_KEY, 'recent_visits': []})
 
     user = getUser(user_token)
 
@@ -246,11 +265,13 @@ async def root(request: Request):
         if segments:
             parent = "/" + "/".join(segments[:-1]) + "/" if len(segments) > 1 else "/"
             touch_entry_opened_by_path(parent, segments[-1])
+            record_folder_visit_by_path(user_token["user_id"], parent, segments[-1])
 
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir, error_message=error_message)
 
     blobs = buildExplorerEntries(list_entries(active_dir))
+    recent_visits = buildRecentVisits(list_recent_visits(user_token["user_id"]))
 
     return templates.TemplateResponse('main.html', {
         'request': request,
@@ -261,6 +282,7 @@ async def root(request: Request):
         'active_dir': active_dir,
         'parent_dir': buildParentPath(active_dir),
         'firebase_api_key': FIREBASE_API_KEY,
+        'recent_visits': recent_visits,
     })
 
 
@@ -338,6 +360,23 @@ async def renameFile(request: Request):
     return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
 
 
+@app.get("/open/{entry_id}")
+async def openFile(entry_id: str, request: Request):
+    print("openFile called", entry_id)
+    id_token = request.cookies.get("token")
+    user_token = validateFirebaseToken(id_token)
+    if not user_token:
+        return RedirectResponse("/")
+
+    entry = get_entry(entry_id)
+    if not entry or entry["blob_url"] == "":
+        raise HTTPException(status_code=404, detail="File not found")
+
+    touch_entry_opened(entry_id)
+    record_visit(user_token["user_id"], entry)
+    return RedirectResponse(entry["blob_url"], status_code=status.HTTP_302_FOUND)
+
+
 @app.get("/download/{entry_id}")
 async def downloadFile(entry_id: str, request: Request):
     print("downloadFile called", entry_id)
@@ -351,6 +390,7 @@ async def downloadFile(entry_id: str, request: Request):
         raise HTTPException(status_code=404, detail="File not found")
 
     touch_entry_opened(entry_id)
+    record_visit(user_token["user_id"], entry)
     blob_name = entry.get("blob_name") or buildBlobName(entry["path"], entry["filename"])
     blob_client = azure_container_client.get_blob_client(blob_name)
 

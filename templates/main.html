@@ -18,11 +18,13 @@
 
 <body class="bg-transparent text-[#f0f0f0] antialiased">
     {% set blob_count = blobs|length if blobs else 0 %}
-    <div class="min-h-screen md:grid md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[250px_minmax(0,1fr)]">
-        <aside
+    <div id="app-shell"
+        class="app-shell min-h-screen md:grid md:grid-cols-[240px_minmax(0,1fr)] lg:grid-cols-[250px_minmax(0,1fr)]">
+        <aside id="app-sidebar"
             class="sidebar-shell flex flex-col border-b border-white/8 px-6 py-5 md:min-h-screen md:border-b-0 md:border-r">
             <div class="flex items-center gap-3">
-                <button class="icon-button hidden md:inline-flex" type="button" aria-label="App menu">
+                <button id="toggle-sidebar" class="icon-button hidden md:inline-flex" type="button"
+                    aria-label="Collapse sidebar">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" class="h-4 w-4">
                         <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
                     </svg>
@@ -48,6 +50,13 @@
                 <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                     <div class="flex items-center gap-3 text-[#f0f0f0]">
                         <button class="icon-button md:hidden" type="button" aria-label="Navigation">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                class="h-4 w-4">
+                                <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
+                            </svg>
+                        </button>
+                        <button id="topbar-toggle-sidebar" class="icon-button hidden md:hidden" type="button"
+                            aria-label="Expand sidebar">
                             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
                                 class="h-4 w-4">
                                 <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
@@ -99,13 +108,43 @@
                     {% endif %}
                 </div>
 
-                <section id="summary" class="mt-6 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-                    <div class="summary-card p-5">
+                <section id="summary"
+                    class="mt-6 grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1fr)_300px]">
+                    <div class="summary-card p-4">
                         <article>
-                            <p class="summary-label">File count</p>
-                            <p class="summary-value">{{ blob_count }}</p>
-                            <p class="summary-copy">Visible files in blob storage</p>
+                            <p class="summary-label">Recent files</p>
+                            <p class="mt-2 text-2xl font-semibold text-[#f0f0f0]">{{ recent_visits|length }}</p>
+                            <p class="mt-1 text-xs text-white/55">Latest visited files and folders</p>
                         </article>
+                        <div id="recent-visits-list" class="mt-4 flex flex-wrap gap-3">
+                            {% if recent_visits %}
+                            {% for visit in recent_visits %}
+                            <button type="button"
+                                class="recent-visit-button w-[350px] max-w-full rounded-[18px] border border-white/8 px-2.5 py-2 text-left"
+                                data-entry-id="{{ visit.entry_id or '' }}" data-entry-name="{{ visit.display_name }}"
+                                data-entry-folder="{{ 'true' if visit.is_folder else 'false' }}"
+                                data-entry-path="{{ visit.next_path }}" data-entry-open-url="{{ visit.open_url }}"
+                                data-entry-kind="{{ visit.kind }}" data-entry-visited="{{ visit.visited_label }}">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-medium text-[#f0f0f0]">{{ visit.display_name }}
+                                        </p>
+                                    </div>
+                                    <span class="shrink-0 text-[11px] uppercase tracking-[0.12em] text-white/55">{{
+                                        'Folder' if visit.is_folder else 'File' }}</span>
+                                </div>
+                                <div class="mt-2 flex items-center justify-between gap-3 text-xs">
+                                    <p class="truncate text-[#f0f0f0]">{{ visit.location_label }}</p>
+                                    <p class="shrink-0 text-white/55">Visited {{ visit.visited_label }}</p>
+                                </div>
+                            </button>
+                            {% endfor %}
+                            {% else %}
+                            <div id="recent-visits-empty"
+                                class="rounded-xl border border-dashed border-white/10 px-3 py-6 text-sm text-white/55">
+                                No recent files or folders yet.</div>
+                            {% endif %}
+                        </div>
                     </div>
 
                     <div class="summary-card p-5">
@@ -193,8 +232,8 @@
                 <div id="create-folder-modal" hidden="true" class="login-modal">
                     <div class="login-panel login-popup w-full max-w-[420px]">
                         <p class="summary-label">Create folder</p>
-                        <form action="/create-folder" method="post" hx-post="/create-folder"
-                            hx-target="#file-region" hx-swap="innerHTML" class="mt-6 space-y-4">
+                        <form action="/create-folder" method="post" hx-post="/create-folder" hx-target="#file-region"
+                            hx-swap="innerHTML" class="mt-6 space-y-4">
                             <input type="hidden" name="path" value="{{ active_dir }}" />
                             <div>
                                 <label class="ui-label" for="folder_name">Folder name</label>
@@ -214,8 +253,8 @@
                 <div id="rename-entry-modal" hidden="true" class="login-modal">
                     <div class="login-panel login-popup w-full max-w-[420px]">
                         <p class="summary-label">Rename entry</p>
-                        <form action="/rename-entry" method="post" hx-post="/rename-entry"
-                            hx-target="#file-region" hx-swap="innerHTML" class="mt-6 space-y-4">
+                        <form action="/rename-entry" method="post" hx-post="/rename-entry" hx-target="#file-region"
+                            hx-swap="innerHTML" class="mt-6 space-y-4">
                             <input type="hidden" name="path" value="{{ active_dir }}" />
                             <input type="hidden" id="rename-entry-id" name="entry_id" value="" />
                             <div>
@@ -233,7 +272,8 @@
                     </div>
                 </div>
 
-                <section class="mt-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_260px] lg:grid-cols-[minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1fr)_300px]">
+                <section
+                    class="mt-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_260px] lg:grid-cols-[minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1fr)_300px]">
                     <div class="space-y-6 md:order-2">
                         <form id="upload-form" action="/upload-file" method="post" enctype="multipart/form-data"
                             hx-post="/upload-file" hx-target="#file-region" hx-swap="innerHTML"
@@ -300,7 +340,32 @@
         const cancelRenameEntryButton = document.getElementById("cancel-rename-entry");
         const renameEntryIdInput = document.getElementById("rename-entry-id");
         const renameNameInput = document.getElementById("rename_name");
+        const appShell = document.getElementById("app-shell");
+        const toggleSidebarButton = document.getElementById("toggle-sidebar");
+        const topbarToggleSidebarButton = document.getElementById("topbar-toggle-sidebar");
+        const recentVisitsList = document.getElementById("recent-visits-list");
         let selectedRow = null;
+
+        const sidebarStorageKey = "ass2.sidebar.collapsed";
+
+        function setSidebarCollapsed(collapsed) {
+            appShell?.classList.toggle("sidebar-collapsed", collapsed);
+            toggleSidebarButton?.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+            topbarToggleSidebarButton?.setAttribute("aria-label", collapsed ? "Expand sidebar" : "Collapse sidebar");
+            topbarToggleSidebarButton?.classList.toggle("md:hidden", !collapsed);
+            topbarToggleSidebarButton?.classList.toggle("md:inline-flex", collapsed);
+            localStorage.setItem(sidebarStorageKey, collapsed ? "true" : "false");
+        }
+
+        toggleSidebarButton?.addEventListener("click", () => {
+            setSidebarCollapsed(!appShell?.classList.contains("sidebar-collapsed"));
+        });
+
+        topbarToggleSidebarButton?.addEventListener("click", () => {
+            setSidebarCollapsed(false);
+        });
+
+        if (localStorage.getItem(sidebarStorageKey) === "true") setSidebarCollapsed(true);
 
         openCreateFolderButton?.addEventListener("click", () => {
             createFolderModal.hidden = false;
@@ -327,12 +392,12 @@
         const fileRegion = document.getElementById("file-region");
 
         function syncActiveDir(path) {
-            document.querySelectorAll('input[name="path"]').forEach((el) => { el.value = path; });
+            document.querySelectorAll('input[name="path"]').forEach((el) => {el.value = path;});
         }
 
         function navigateTo(path) {
-            htmx.ajax("GET", `/?path=${encodeURIComponent(path)}`, { target: "#file-region", swap: "innerHTML" });
-            history.pushState({ path }, "", `/?path=${encodeURIComponent(path)}`);
+            htmx.ajax("GET", `/?path=${encodeURIComponent(path)}`, {target: "#file-region", swap: "innerHTML"});
+            history.pushState({path}, "", `/?path=${encodeURIComponent(path)}`);
             syncActiveDir(path);
         }
 
@@ -371,6 +436,55 @@
             applyPreview(snapshotRow(row));
         }
 
+        function formatOpenedLabel(date = new Date()) {
+            const pad = (value) => String(value).padStart(2, "0");
+            const hours24 = date.getHours();
+            const hours12 = hours24 % 12 || 12;
+            const period = hours24 >= 12 ? "pm" : "am";
+            return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ${pad(hours12)}:${pad(date.getMinutes())} ${period}`;
+        }
+
+        function markRowOpened(row) {
+            row.dataset.entryOpened = formatOpenedLabel();
+            if (selectedRow === row && !previewCard.hidden) showPreview(row);
+        }
+
+        function upsertRecentVisit(data) {
+            if (!recentVisitsList) return;
+            document.getElementById("recent-visits-empty")?.remove();
+            const key = `${data.path}::${data.name}`;
+            recentVisitsList.querySelectorAll(".recent-visit-button").forEach((item) => {
+                const itemKey = `${item.dataset.entryPath}::${item.dataset.entryName}`;
+                if (itemKey === key) item.remove();
+            });
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "recent-visit-button w-[350px] max-w-full rounded-[18px] border border-white/8 px-2.5 py-2 text-left";
+            button.dataset.entryId = data.entryId || "";
+            button.dataset.entryName = data.name;
+            button.dataset.entryFolder = data.isFolder ? "true" : "false";
+            button.dataset.entryPath = data.path;
+            button.dataset.entryOpenUrl = data.openUrl || "";
+            button.dataset.entryKind = data.kind;
+            button.dataset.entryVisited = data.visited;
+            button.innerHTML = `
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <p class="truncate text-sm font-medium text-[#f0f0f0]">${data.name}</p>
+                    </div>
+                    <span class="shrink-0 text-[11px] uppercase tracking-[0.12em] text-white/55">${data.isFolder ? "Folder" : "File"}</span>
+                </div>
+                <div class="mt-2 flex items-center justify-between gap-3 text-xs">
+                    <p class="truncate text-[#f0f0f0]">${data.location}</p>
+                    <p class="shrink-0 text-white/55">Visited ${data.visited}</p>
+                </div>
+            `;
+            recentVisitsList.prepend(button);
+            while (recentVisitsList.querySelectorAll(".recent-visit-button").length > 8) {
+                recentVisitsList.lastElementChild?.remove();
+            }
+        }
+
         function hidePreview() {
             previewCard.hidden = true;
         }
@@ -395,15 +509,66 @@
 
         fileRegion.addEventListener("dblclick", (event) => {
             const row = event.target.closest(".file-row-selectable");
-            if (!row || row.dataset.entryFolder !== "true") return;
-            pendingPreview = snapshotRow(row);
-            navigateTo(row.dataset.entryPath);
+            if (!row || event.target.closest("a, form, input, button")) return;
+            const visited = formatOpenedLabel();
+            if (row.dataset.entryFolder === "true") {
+                pendingPreview = snapshotRow(row);
+                upsertRecentVisit({
+                    entryId: row.dataset.entryId,
+                    name: row.dataset.entryName,
+                    isFolder: true,
+                    path: row.dataset.entryPath,
+                    openUrl: "",
+                    kind: row.dataset.entryKind,
+                    visited,
+                    location: row.dataset.entryPath,
+                });
+                navigateTo(row.dataset.entryPath);
+                return;
+            }
+            if (row.dataset.entryOpenUrl) {
+                markRowOpened(row);
+                upsertRecentVisit({
+                    entryId: row.dataset.entryId,
+                    name: row.dataset.entryName,
+                    isFolder: false,
+                    path: row.dataset.entryPath,
+                    openUrl: row.dataset.entryOpenUrl,
+                    kind: row.dataset.entryKind,
+                    visited,
+                    location: row.dataset.entryPath,
+                });
+                window.open(row.dataset.entryOpenUrl, "_blank", "noopener");
+            }
         });
 
         window.addEventListener("popstate", () => {
             const p = new URL(location.href).searchParams.get("path") || "/";
-            htmx.ajax("GET", `/?path=${encodeURIComponent(p)}`, { target: "#file-region", swap: "innerHTML" });
+            htmx.ajax("GET", `/?path=${encodeURIComponent(p)}`, {target: "#file-region", swap: "innerHTML"});
             syncActiveDir(p);
+        });
+
+        recentVisitsList?.addEventListener("click", (event) => {
+            const item = event.target.closest(".recent-visit-button");
+            if (!item) return;
+            const visited = formatOpenedLabel();
+            upsertRecentVisit({
+                entryId: item.dataset.entryId,
+                name: item.dataset.entryName,
+                isFolder: item.dataset.entryFolder === "true",
+                path: item.dataset.entryPath,
+                openUrl: item.dataset.entryOpenUrl,
+                kind: item.dataset.entryKind,
+                visited,
+                location: item.dataset.entryPath,
+            });
+            if (item.dataset.entryFolder === "true") {
+                navigateTo(item.dataset.entryPath);
+                return;
+            }
+            if (item.dataset.entryOpenUrl) {
+                window.open(item.dataset.entryOpenUrl, "_blank", "noopener");
+            }
         });
 
         document.body.addEventListener("htmx:afterSwap", (e) => {

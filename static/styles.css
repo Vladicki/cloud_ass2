@@ -25,6 +25,22 @@ body::before {
 .sidebar-shell {
   background: #20201f;
   backdrop-filter: blur(10px);
+  transition: width 180ms ease, padding 180ms ease, opacity 180ms ease;
+}
+
+@media (min-width: 768px) {
+  .app-shell.sidebar-collapsed {
+    grid-template-columns: 0 minmax(0, 1fr);
+  }
+
+  .app-shell.sidebar-collapsed .sidebar-shell {
+    width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    overflow: hidden;
+    border-right-color: transparent;
+    opacity: 0;
+  }
 }
 
 .topbar-shell {
@@ -132,6 +148,15 @@ body::before {
   border: 1px solid #343432;
   background: #191919;
   box-shadow: none;
+}
+
+.recent-visit-button {
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.recent-visit-button:hover {
+  background: #20201f;
+  border-color: #3d3d3a;
 }
 
 .login-panel {
