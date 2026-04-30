@@ -7,7 +7,7 @@
     <title>Vlad's Cloud Vault Solution</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="icon"
-        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230056ff'/%3E%3Cpath d='M17 18l15 9-10 6-15-9zm15 9 15-9 10 6-15 9zm-10 8 10 6 10-6-10-6z' fill='white'/%3E%3C/svg%3E" />
+        href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230056ff'/%3E%3Cpath d='M21 42h23a8 8 0 0 0 1.2-15.9A12 12 0 0 0 22.4 22a10 10 0 0 0-1.4 20z' fill='white'/%3E%3C/svg%3E" />
     <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=15" rel="stylesheet" />
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script>
@@ -35,8 +35,8 @@
             </div>
 
             <nav class="mt-8 space-y-1 text-[15px]">
-                <a href="#dashboard" class="sidebar-link sidebar-link-active">Home</a>
-                <a href="/?path={{ active_dir if user_token else '/' }}" class="sidebar-link {{ 'sidebar-link-active' if view_mode == 'files' else '' }}">All files</a>
+                <a href="/" class="sidebar-link {{ 'sidebar-link-active' if view_mode != 'trash' else '' }}">Home</a>
+                <a href="/tree" class="sidebar-link">All files</a>
                 <!-- TODO:implement Recent as the section under file tree  -->
                 <!-- <a href="#summary" class="sidebar-link">Recents</a> -->
                 <a href="/deleted-files" class="sidebar-link {{ 'sidebar-link-active' if view_mode == 'trash' else '' }}">Deleted files</a>
@@ -74,14 +74,6 @@
                     </div>
 
                     <div class="flex items-center gap-3 self-end xl:self-auto">
-                        <button class="icon-button" type="button" aria-label="Help">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                                class="h-4 w-4">
-                                <circle cx="12" cy="12" r="9"></circle>
-                                <path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 2-3 4" stroke-linecap="round"></path>
-                                <path d="M12 17h.01" stroke-linecap="round"></path>
-                            </svg>
-                        </button>
                         <button id="sign-out" hidden="true"
                             class="toolbar-button whitespace-nowrap px-4 py-2 text-sm text-[#f0f0f0]">Sign out</button>
                     </div>
@@ -395,9 +387,21 @@
             document.querySelectorAll('input[name="path"]').forEach((el) => {el.value = path;});
         }
 
+        function buildBrowseUrl(path) {
+            return path === "/" ? "/files" : `/files${path.endsWith("/") ? path.slice(0, -1) : path}`;
+        }
+
+        function browsePathFromUrl(urlString) {
+            const url = new URL(urlString, window.location.origin);
+            if (!url.pathname.startsWith("/files")) return "/";
+            const suffix = url.pathname.slice("/files".length);
+            return suffix ? `${suffix}/` : "/";
+        }
+
         function navigateTo(path) {
-            htmx.ajax("GET", `/?path=${encodeURIComponent(path)}`, {target: "#file-region", swap: "innerHTML"});
-            history.pushState({path}, "", `/?path=${encodeURIComponent(path)}`);
+            const browseUrl = buildBrowseUrl(path);
+            htmx.ajax("GET", browseUrl, {target: "#file-region", swap: "innerHTML"});
+            history.pushState({path}, "", browseUrl);
             syncActiveDir(path);
         }
 
@@ -513,8 +517,7 @@
         fileRegion.addEventListener("click", (event) => {
             const breadcrumb = event.target.closest(".breadcrumb-link");
             if (breadcrumb && !breadcrumb.classList.contains("breadcrumb-current")) {
-                const url = new URL(breadcrumb.href);
-                syncActiveDir(url.searchParams.get("path") || "/");
+                syncActiveDir(browsePathFromUrl(breadcrumb.href));
                 return;
             }
             const row = event.target.closest(".file-row-selectable");
@@ -563,8 +566,8 @@
         });
 
         window.addEventListener("popstate", () => {
-            const p = new URL(location.href).searchParams.get("path") || "/";
-            htmx.ajax("GET", `/?path=${encodeURIComponent(p)}`, {target: "#file-region", swap: "innerHTML"});
+            const p = browsePathFromUrl(location.href);
+            htmx.ajax("GET", buildBrowseUrl(p), {target: "#file-region", swap: "innerHTML"});
             syncActiveDir(p);
         });
 

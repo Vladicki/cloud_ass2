@@ -226,6 +226,14 @@ def buildParentPath(path):
 
 
 
+def buildBrowseUrl(path):
+    active_dir = normalize_path(path)
+    if active_dir == "/":
+        return "/files"
+    return f"/files{active_dir[:-1]}"
+
+
+
 def buildTreeNodes(path):
     nodes = []
     entries = buildExplorerEntries(list_entries(path))
@@ -256,7 +264,7 @@ def fileRegionResponse(request, active_dir, error_message=None, view_mode="files
         'error_message': error_message,
         'view_mode': view_mode,
     })
-    response.headers['HX-Push-Url'] = f"/?path={active_dir}" if view_mode == "files" else "/deleted-files"
+    response.headers['HX-Push-Url'] = buildBrowseUrl(active_dir) if view_mode == "files" else "/deleted-files"
     return response
 
 
@@ -270,14 +278,30 @@ def isHtmxRequest(request):
 async def root(request: Request):
     print("root called")
     id_token = request.cookies.get('token')
+    user_token = validateFirebaseToken(id_token)
+    if not user_token:
+        return templates.TemplateResponse('main.html', {'request': request, 'user_token': None, 'error_message': None, 'user_info': None, 'active_dir': '/', 'parent_dir': None, 'firebase_api_key': FIREBASE_API_KEY, 'recent_visits': [], 'view_mode': 'files', 'page_title': 'All files'})
+
+    return RedirectResponse("/files", status_code=status.HTTP_302_FOUND)
+
+
+@app.get("/files", response_class=HTMLResponse)
+async def filesRoot(request: Request):
+    return await filesPage(request, "")
+
+
+@app.get("/files/{active_path:path}", response_class=HTMLResponse)
+async def filesPage(request: Request, active_path: str):
+    print("filesPage called", active_path)
+    id_token = request.cookies.get('token')
     error_message = request.query_params.get("error")
     user_token = None
     user = None
-    active_dir = normalize_path(request.query_params.get("path", "/"))
+    active_dir = normalize_path(active_path)
 
     user_token = validateFirebaseToken(id_token)
     if not user_token:
-        return templates.TemplateResponse('main.html', {'request': request, 'user_token': None, 'error_message': None, 'user_info': None, 'active_dir': active_dir, 'parent_dir': buildParentPath(active_dir), 'firebase_api_key': FIREBASE_API_KEY, 'recent_visits': [], 'view_mode': 'files', 'page_title': 'All files'})
+        return RedirectResponse("/")
 
     user = getUser(user_token)
 
@@ -325,7 +349,7 @@ async def uploadFile(request: Request):
     if uploaded_file.filename == '':
         if isHtmxRequest(request):
             return fileRegionResponse(request, active_dir)
-        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+        return RedirectResponse(buildBrowseUrl(active_dir), status_code=status.HTTP_302_FOUND)
 
     blob_name = buildBlobName(active_dir, uploaded_file.filename)
     blob_data = uploaded_file.file.read()
@@ -335,7 +359,7 @@ async def uploadFile(request: Request):
 
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir)
-    return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(buildBrowseUrl(active_dir), status_code=status.HTTP_302_FOUND)
 
 
 @app.post("/create-folder", response_class=RedirectResponse)
@@ -354,12 +378,12 @@ async def createFolder(request: Request):
     if not folder_name:
         if isHtmxRequest(request):
             return fileRegionResponse(request, active_dir)
-        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+        return RedirectResponse(buildBrowseUrl(active_dir), status_code=status.HTTP_302_FOUND)
 
     create_entry(folder_name, active_dir, "")
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir)
-    return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(buildBrowseUrl(active_dir), status_code=status.HTTP_302_FOUND)
 
 
 @app.post("/rename-entry", response_class=RedirectResponse)
@@ -380,7 +404,7 @@ async def renameFile(request: Request):
 
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir)
-    return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(buildBrowseUrl(active_dir), status_code=status.HTTP_302_FOUND)
 
 
 @app.get("/deleted-files", response_class=HTMLResponse)
@@ -421,13 +445,12 @@ async def treePage(request: Request):
     if not user_token:
         return RedirectResponse("/")
 
-    active_dir = normalize_path(request.query_params.get("path", "/"))
+    active_dir = "/"
     tree_nodes = buildTreeNodes(active_dir)
     return templates.TemplateResponse('tree.html', {
         'request': request,
         'user_token': user_token,
         'active_dir': active_dir,
-        'parent_dir': buildParentPath(active_dir),
         'tree_nodes': tree_nodes,
     })
 
@@ -496,7 +519,7 @@ async def deleteFile(request: Request):
     if not entry:
         if isHtmxRequest(request):
             return fileRegionResponse(request, active_dir)
-        return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+        return RedirectResponse(buildBrowseUrl(active_dir), status_code=status.HTTP_302_FOUND)
 
     if entry["blob_url"] == "":
         move_folder_tree_to_trash(entry_id)
@@ -505,7 +528,7 @@ async def deleteFile(request: Request):
 
     if isHtmxRequest(request):
         return fileRegionResponse(request, active_dir)
-    return RedirectResponse(f"/?path={active_dir}", status_code=status.HTTP_302_FOUND)
+    return RedirectResponse(buildBrowseUrl(active_dir), status_code=status.HTTP_302_FOUND)
 
 
 @app.post("/restore-entry", response_class=RedirectResponse)

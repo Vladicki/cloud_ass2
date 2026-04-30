@@ -5,13 +5,13 @@
 {% endif %}
 {% if view_mode != 'trash' %}
 <nav class="breadcrumb-bar flex flex-wrap items-center gap-1 text-sm" aria-label="Current path">
-    <a href="/?path=/" hx-get="/?path=/" hx-target="#file-region" hx-swap="innerHTML" hx-push-url="/?path=/"
+    <a href="/files" hx-get="/files" hx-target="#file-region" hx-swap="innerHTML" hx-push-url="/files"
         class="breadcrumb-link {{ 'breadcrumb-current' if not crumb_parts }}">Drive</a>
     {% for seg in crumb_parts %}
     {% set ns.acc = ns.acc + '/' + seg %}
     <span class="breadcrumb-sep" aria-hidden="true">/</span>
-    <a href="/?path={{ ns.acc }}" hx-get="/?path={{ ns.acc }}" hx-target="#file-region" hx-swap="innerHTML"
-        hx-push-url="/?path={{ ns.acc }}"
+    <a href="/files{{ ns.acc }}" hx-get="/files{{ ns.acc }}" hx-target="#file-region" hx-swap="innerHTML"
+        hx-push-url="/files{{ ns.acc }}"
         class="breadcrumb-link {{ 'breadcrumb-current' if loop.last }}">{{ seg }}</a>
     {% endfor %}
 </nav>
