@@ -79,7 +79,7 @@ Use `.env.example` as the template and create your own `.env` file with real val
 
 ### 3. Create a virtual environment
 
-For Python/macOS users, create a virtual environment named `venv_name`:
+For Linux/macOS users, create a virtual environment named `venv_name`:
 
 ```bash
 python3 -m venv vla-cloud

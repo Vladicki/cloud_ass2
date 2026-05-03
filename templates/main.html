@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="icon"
         href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%230056ff'/%3E%3Cpath d='M21 42h23a8 8 0 0 0 1.2-15.9A12 12 0 0 0 22.4 22a10 10 0 0 0-1.4 20z' fill='white'/%3E%3C/svg%3E" />
-    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=15" rel="stylesheet" />
+    <link type="text/css" href="{{ url_for('static', path='/styles.css') }}?v=16" rel="stylesheet" />
     <script src="https://unpkg.com/htmx.org@2.0.4"></script>
     <script>
         window.FIREBASE_API_KEY = {{firebase_api_key | tojson}};
@@ -35,10 +35,9 @@
             </div>
 
             <nav class="mt-8 space-y-1 text-[15px]">
-                <a href="/" class="sidebar-link {{ 'sidebar-link-active' if view_mode != 'trash' else '' }}">Home</a>
+                <a href="/" class="sidebar-link {{ 'sidebar-link-active' if view_mode in ['files', 'shared_folder'] else '' }}">Home</a>
                 <a href="/tree" class="sidebar-link">All files</a>
-                <!-- TODO:implement Recent as the section under file tree  -->
-                <!-- <a href="#summary" class="sidebar-link">Recents</a> -->
+                <a href="/duplicates" class="sidebar-link {{ 'sidebar-link-active' if view_mode == 'duplicates' else '' }}">Duplicate files</a>
                 <a href="/deleted-files" class="sidebar-link {{ 'sidebar-link-active' if view_mode == 'trash' else '' }}">Deleted files</a>
             </nav>
 
@@ -133,7 +132,7 @@
                             {% else %}
                             <div id="recent-visits-empty"
                                 class="rounded-xl border border-dashed border-white/10 px-3 py-6 text-sm text-white/55">
-                                No recent files or folders yet.</div>
+                                No recent files yet.</div>
                             {% endif %}
                         </div>
                     </div>
@@ -152,11 +151,15 @@
                             </div>
                             <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
                                 <span class="text-[#f0f0f0]">Current path:</span>
-                                <span class="font-medium text-[#f0f0f0]">{{ active_dir if user_token else "/" }}</span>
+                                <span id="current-path-label" class="font-medium text-[#f0f0f0]">{{ active_dir if user_token else "/" }}</span>
+                            </div>
+                            <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                <span class="text-[#f0f0f0]">Duplicate matches</span>
+                                <span class="font-medium text-[#f0f0f0]">{{ duplicate_count }}</span>
                             </div>
                             <div class="flex items-center justify-between gap-4">
-                                <span class="text-[#f0f0f0]">Visibility</span>
-                                <span class="font-medium text-[#f0f0f0]">Only you</span>
+                                <span class="text-[#f0f0f0]">Shared with you</span>
+                                <span class="font-medium text-[#f0f0f0]">{{ shared_items|length }}</span>
                             </div>
                         </div>
                     </div>
@@ -263,59 +266,216 @@
                     </div>
                 </div>
 
-                <section
-                    class="mt-6 grid gap-6 md:grid-cols-[minmax(0,1fr)_260px] lg:grid-cols-[minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1fr)_300px]">
-                    <div class="space-y-6 md:order-2">
-                        <form id="upload-form" action="/upload-file" method="post" enctype="multipart/form-data"
-                            hx-post="/upload-file" hx-target="#file-region" hx-swap="innerHTML"
-                            hx-encoding="multipart/form-data" class="hidden">
-                            <input id="path" type="hidden" name="path" value="{{ active_dir }}" />
-                            <input id="file_name" type="file" name="file_name" class="hidden"
-                                onchange="if (this.files.length) this.form.requestSubmit();" />
+                <div id="share-entry-modal" hidden="true" class="login-modal">
+                    <div class="login-panel login-popup w-full max-w-[420px]">
+                        <p class="summary-label">Share read-only</p>
+                        <p id="share-entry-name" class="mt-2 text-base font-semibold text-[#f0f0f0]">—</p>
+                        <form action="/share-entry" method="post" hx-post="/share-entry" hx-target="#file-region"
+                            hx-swap="innerHTML" class="mt-6 space-y-4">
+                            <input type="hidden" name="path" value="{{ active_dir }}" />
+                            <input type="hidden" id="share-entry-id" name="entry_id" value="" />
+                            <input type="hidden" id="share-entry-type" name="entry_type" value="" />
+                            <div>
+                                <label class="ui-label" for="shared_email">User email</label>
+                                <input id="shared_email" type="email" name="shared_email" class="ui-input mt-2"
+                                    placeholder="friend@example.com" />
+                            </div>
+                            <div class="flex gap-3">
+                                <button type="submit"
+                                    class="toolbar-button toolbar-button-primary px-5 py-2.5 text-sm font-medium text-[#f0f0f0]">Share</button>
+                                <button type="button" id="cancel-share-entry"
+                                    class="toolbar-button px-5 py-2.5 text-sm text-[#f0f0f0]">Cancel</button>
+                            </div>
                         </form>
+                    </div>
+                </div>
 
-                        <div id="preview-card" class="summary-card relative p-5" hidden>
-                            <button type="button" id="preview-close" aria-label="Close preview"
-                                class="preview-close-button absolute right-3 top-3">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                                    class="h-3.5 w-3.5">
-                                    <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
-                                </svg>
-                            </button>
-                            <p class="summary-label">Preview</p>
-                            <p id="preview-name" class="mt-2 truncate pr-8 text-base font-semibold text-[#f0f0f0]">—</p>
-                            <dl class="mt-4 space-y-3 text-sm text-[#f0f0f0]">
-                                <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
-                                    <dt class="text-white/60">File Type</dt>
-                                    <dd id="preview-kind" class="font-medium">—</dd>
-                                </div>
-                                <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
-                                    <dt class="text-white/60">Modified</dt>
-                                    <dd id="preview-modified" class="font-medium">—</dd>
-                                </div>
-                                <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
-                                    <dt class="text-white/60">Opened</dt>
-                                    <dd id="preview-opened" class="font-medium">—</dd>
-                                </div>
-                                <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
-                                    <dt class="text-white/60">Created At</dt>
-                                    <dd id="preview-created" class="font-medium">—</dd>
-                                </div>
-                                <div class="flex items-center justify-between gap-4">
-                                    <dt class="text-white/60">Size</dt>
-                                    <dd id="preview-size" class="font-medium">—</dd>
-                                </div>
-                            </dl>
+                <div id="manage-duplicates-modal" hidden="true" class="login-modal">
+                    <div class="login-panel login-popup w-full max-w-[720px]">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <p class="summary-label">Manage duplicates</p>
+                                <p class="mt-2 text-sm text-white/55">Choose any duplicate file to discard from this directory.</p>
+                            </div>
+                            <button type="button" id="cancel-manage-duplicates"
+                                class="toolbar-button px-4 py-2 text-sm text-[#f0f0f0]">Close</button>
                         </div>
+                        <div id="manage-duplicates-content" class="mt-6 space-y-4">
+                            {% if duplicate_groups %}
+                            {% for group in duplicate_groups %}
+                            <div class="duplicate-group rounded-[18px] border border-white/8 p-4">
+                                <div class="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <p class="text-sm font-medium text-[#f0f0f0]">Group {{ group.group_id }}</p>
+                                        <p class="mt-1 text-xs text-white/55">{{ group.count }} matches</p>
+                                    </div>
+                                </div>
+                                <div class="mt-4 space-y-3">
+                                    {% for item in group.entries %}
+                                    <div class="duplicate-manage-item rounded-xl border border-white/8 px-4 py-3">
+                                        <div class="flex flex-wrap items-center justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <p class="truncate text-sm font-medium text-[#f0f0f0]">{{ item.display_name }}</p>
+                                                <p class="mt-1 truncate text-xs text-white/55">{{ item.path }}</p>
+                                            </div>
+                                            <span class="text-xs text-white/55">{{ item.size_label }}</span>
+                                        </div>
+                                        <div class="mt-3 flex flex-wrap gap-2">
+                                            <a href="{{ item.open_url }}" target="_blank" rel="noopener" class="row-action">Open</a>
+                                            <a href="{{ item.download_url }}" class="row-action">Download</a>
+                                            <form action="/delete-file" method="post" hx-post="/delete-file" hx-target="#file-region" hx-swap="innerHTML">
+                                                <input type="hidden" name="entry_id" value="{{ item.id }}" />
+                                                <input type="hidden" name="path" value="{{ active_dir }}" />
+                                                <input type="submit" value="Discard" class="row-action row-action-danger cursor-pointer" />
+                                            </form>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                            {% else %}
+                            <div class="rounded-xl border border-dashed border-white/10 px-4 py-8 text-sm text-white/55">No duplicate files to manage in this directory.</div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
 
-                        {% if error_message %}
-                        <div class="summary-card p-5 text-sm text-red-300">{{ error_message }}</div>
+                <section class="mt-6 space-y-6">
+                    {% if shared_items %}
+                    <div class="summary-card p-5">
+                        <div class="flex items-center justify-between gap-3">
+                            <div>
+                                <p class="summary-label">Shared with you</p>
+                                <p class="mt-2 text-sm text-white/55">Read-only files and folders from other users.</p>
+                            </div>
+                            <p class="text-sm font-medium text-[#f0f0f0]">{{ shared_items|length }} items</p>
+                        </div>
+                        <div class="mt-4 grid gap-3 lg:grid-cols-2">
+                            {% for item in shared_items %}
+                            <div class="rounded-[18px] border border-white/8 px-4 py-3">
+                                <div class="flex items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <p class="truncate text-sm font-medium text-[#f0f0f0]">{{ item.display_name }}</p>
+                                        <p class="mt-1 truncate text-xs text-white/55">{{ item.path }}</p>
+                                    </div>
+                                    <span class="text-[11px] uppercase tracking-[0.12em] text-white/55">{{ item.permission }}</span>
+                                </div>
+                                <div class="mt-3 flex flex-wrap gap-2">
+                                    {% if item.is_folder %}
+                                    <a href="{{ item.browse_url }}" class="row-action">Browse</a>
+                                    {% else %}
+                                    <a href="{{ item.open_url }}" class="row-action" target="_blank" rel="noopener">Open</a>
+                                    <a href="{{ item.download_url }}" class="row-action">Download</a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    {% if view_mode == 'duplicates' %}
+                    <div class="summary-card p-5">
+                        <div class="flex items-center justify-between gap-3 border-b border-white/8 pb-4">
+                            <div>
+                                <p class="summary-label">Whole workspace scan</p>
+                                <p class="mt-2 text-sm text-white/55">Groups based on file content hash.</p>
+                            </div>
+                            <p class="text-sm font-medium text-[#f0f0f0]">{{ duplicate_groups|length }} groups</p>
+                        </div>
+                        {% if duplicate_groups %}
+                        <div class="mt-5 space-y-4">
+                            {% for group in duplicate_groups %}
+                            <div class="duplicate-group rounded-[18px] border border-white/8 p-4">
+                                <div class="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <p class="text-sm font-medium text-[#f0f0f0]">Group {{ group.group_id }}</p>
+                                        <p class="mt-1 text-xs text-white/55">Hash {{ group.content_hash[:12] }}... · {{ group.count }} matches</p>
+                                    </div>
+                                </div>
+                                <div class="mt-4 space-y-3">
+                                    {% for item in group.entries %}
+                                    <div class="rounded-xl border border-white/8 px-4 py-3">
+                                        <div class="flex flex-wrap items-center justify-between gap-3">
+                                            <div class="min-w-0">
+                                                <p class="truncate text-sm font-medium text-[#f0f0f0]">{{ item.display_name }}</p>
+                                                <p class="mt-1 truncate text-xs text-white/55">{{ item.path }}</p>
+                                            </div>
+                                            <span class="text-xs text-white/55">{{ item.size_label }}</span>
+                                        </div>
+                                        <div class="mt-3 flex flex-wrap gap-2">
+                                            <a href="{{ item.open_url }}" target="_blank" rel="noopener" class="row-action">Open</a>
+                                            <a href="{{ item.download_url }}" class="row-action">Download</a>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <div class="mt-5 rounded-xl border border-dashed border-white/10 px-4 py-8 text-sm text-white/55">No duplicate files found in your workspace.</div>
                         {% endif %}
                     </div>
+                    {% else %}
+                    <div
+                        class="grid gap-6 {{ 'md:grid-cols-[minmax(0,1fr)_260px] lg:grid-cols-[minmax(0,1fr)_280px] xl:grid-cols-[minmax(0,1fr)_300px]' if not shared_view else 'grid-cols-1' }}">
+                        <div class="space-y-6 {{ 'md:order-2' if not shared_view else '' }}">
+                            {% if not shared_view %}
+                            <form id="upload-form" action="/upload-file" method="post" enctype="multipart/form-data"
+                                hx-post="/upload-file" hx-target="#file-region" hx-swap="innerHTML"
+                                hx-encoding="multipart/form-data" class="hidden">
+                                <input id="path" type="hidden" name="path" value="{{ active_dir }}" />
+                                <input id="file_name" type="file" name="file_name" class="hidden"
+                                    onchange="if (this.files.length) this.form.requestSubmit();" />
+                            </form>
+                            {% endif %}
 
-                    <div id="file-region" class="min-w-0 space-y-3 md:order-1">
-                        {% include "_file_manager_region.html" %}
+                            <div id="preview-card" class="summary-card relative p-5" hidden>
+                                <button type="button" id="preview-close" aria-label="Close preview"
+                                    class="preview-close-button absolute right-3 top-3">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                                        class="h-3.5 w-3.5">
+                                        <path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
+                                    </svg>
+                                </button>
+                                <p class="summary-label">Preview</p>
+                                <p id="preview-name" class="mt-2 truncate pr-8 text-base font-semibold text-[#f0f0f0]">—</p>
+                                <dl class="mt-4 space-y-3 text-sm text-[#f0f0f0]">
+                                    <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                        <dt class="text-white/60">File Type</dt>
+                                        <dd id="preview-kind" class="font-medium">—</dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                        <dt class="text-white/60">Modified</dt>
+                                        <dd id="preview-modified" class="font-medium">—</dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                        <dt class="text-white/60">Opened</dt>
+                                        <dd id="preview-opened" class="font-medium">—</dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-4 border-b border-white/8 pb-3">
+                                        <dt class="text-white/60">Created At</dt>
+                                        <dd id="preview-created" class="font-medium">—</dd>
+                                    </div>
+                                    <div class="flex items-center justify-between gap-4">
+                                        <dt class="text-white/60">Size</dt>
+                                        <dd id="preview-size" class="font-medium">—</dd>
+                                    </div>
+                                </dl>
+                            </div>
+
+                            {% if error_message %}
+                            <div class="summary-card p-5 text-sm text-red-300">{{ error_message }}</div>
+                            {% endif %}
+                        </div>
+
+                        <div id="file-region" class="min-w-0 space-y-3 {{ 'md:order-1' if not shared_view else '' }}">
+                            {% include "_file_manager_region.html" %}
+                        </div>
                     </div>
+                    {% endif %}
                 </section>
                 {% endif %}
             </main>
@@ -325,17 +485,26 @@
     <script>
         const createFolderModal = document.getElementById("create-folder-modal");
         const renameEntryModal = document.getElementById("rename-entry-modal");
+        const shareEntryModal = document.getElementById("share-entry-modal");
+        const manageDuplicatesModal = document.getElementById("manage-duplicates-modal");
         const openCreateFolderButton = document.getElementById("open-create-folder");
         const cancelCreateFolderButton = document.getElementById("cancel-create-folder");
         const openRenameEntryButton = document.getElementById("open-rename-entry");
         const cancelRenameEntryButton = document.getElementById("cancel-rename-entry");
+        const cancelShareEntryButton = document.getElementById("cancel-share-entry");
+        const cancelManageDuplicatesButton = document.getElementById("cancel-manage-duplicates");
         const renameEntryIdInput = document.getElementById("rename-entry-id");
         const renameNameInput = document.getElementById("rename_name");
+        const shareEntryIdInput = document.getElementById("share-entry-id");
+        const shareEntryTypeInput = document.getElementById("share-entry-type");
+        const shareEntryName = document.getElementById("share-entry-name");
+        const sharedEmailInput = document.getElementById("shared_email");
         const appShell = document.getElementById("app-shell");
         const toggleSidebarButton = document.getElementById("toggle-sidebar");
         const topbarToggleSidebarButton = document.getElementById("topbar-toggle-sidebar");
         const recentVisitsList = document.getElementById("recent-visits-list");
         const recentVisitsCount = document.getElementById("recent-visits-count");
+        const currentPathLabel = document.getElementById("current-path-label");
         let selectedRow = null;
 
         const sidebarStorageKey = "ass2.sidebar.collapsed";
@@ -358,6 +527,7 @@
         });
 
         if (localStorage.getItem(sidebarStorageKey) === "true") setSidebarCollapsed(true);
+        syncActiveDir(window.location.pathname.startsWith("/files") ? browsePathFromUrl(window.location.href) : "{{ active_dir if user_token else '/' }}");
 
         openCreateFolderButton?.addEventListener("click", () => {
             createFolderModal.hidden = false;
@@ -370,6 +540,14 @@
 
         cancelRenameEntryButton?.addEventListener("click", () => {
             renameEntryModal.hidden = true;
+        });
+
+        cancelShareEntryButton?.addEventListener("click", () => {
+            shareEntryModal.hidden = true;
+        });
+
+        cancelManageDuplicatesButton?.addEventListener("click", () => {
+            manageDuplicatesModal.hidden = true;
         });
 
         openRenameEntryButton?.addEventListener("click", () => {
@@ -385,6 +563,7 @@
 
         function syncActiveDir(path) {
             document.querySelectorAll('input[name="path"]').forEach((el) => {el.value = path;});
+            if (currentPathLabel) currentPathLabel.textContent = path;
         }
 
         function buildBrowseUrl(path) {
@@ -403,6 +582,11 @@
             htmx.ajax("GET", browseUrl, {target: "#file-region", swap: "innerHTML"});
             history.pushState({path}, "", browseUrl);
             syncActiveDir(path);
+        }
+
+        function joinSharedPath(basePath, name) {
+            const cleanBase = basePath.replace(/\/$/, "");
+            return `${cleanBase}/${encodeURIComponent(name)}`;
         }
 
         const previewCard = document.getElementById("preview-card");
@@ -454,7 +638,7 @@
         }
 
         function upsertRecentVisit(data) {
-            if (!recentVisitsList) return;
+            if (!recentVisitsList || data.isFolder) return;
             document.getElementById("recent-visits-empty")?.remove();
             const key = `${data.path}::${data.name}`;
             recentVisitsList.querySelectorAll(".recent-visit-button").forEach((item) => {
@@ -507,14 +691,65 @@
                 if (itemKey === key) item.remove();
             });
             if (!recentVisitsList.querySelector(".recent-visit-button")) {
-                recentVisitsList.innerHTML = '<div id="recent-visits-empty" class="rounded-xl border border-dashed border-white/10 px-3 py-6 text-sm text-white/55">No recent files or folders yet.</div>';
+                recentVisitsList.innerHTML = '<div id="recent-visits-empty" class="rounded-xl border border-dashed border-white/10 px-3 py-6 text-sm text-white/55">No recent files yet.</div>';
             }
             syncRecentVisitsCount();
         }
 
         previewCloseButton?.addEventListener("click", hidePreview);
 
-        fileRegion.addEventListener("click", (event) => {
+        function closeRowMenus() {
+            document.querySelectorAll(".row-menu[open]").forEach((menu) => {
+                menu.removeAttribute("open");
+            });
+        }
+
+        function positionRowMenu(menu) {
+            const trigger = menu.querySelector(".row-menu-trigger");
+            const panel = menu.querySelector(".row-menu-panel");
+            if (!trigger || !panel) return;
+            const triggerRect = trigger.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            const left = Math.max(12, Math.min(triggerRect.right - panelRect.width, window.innerWidth - panelRect.width - 12));
+            const top = Math.min(triggerRect.bottom + 8, window.innerHeight - panelRect.height - 12);
+            panel.style.setProperty("--row-menu-left", `${left}px`);
+            panel.style.setProperty("--row-menu-top", `${top}px`);
+        }
+
+        document.addEventListener("click", (event) => {
+            document.querySelectorAll(".row-menu[open]").forEach((menu) => {
+                if (!menu.contains(event.target)) menu.removeAttribute("open");
+            });
+        });
+
+        document.addEventListener("toggle", (event) => {
+            const menu = event.target;
+            if (!menu.classList?.contains("row-menu")) return;
+            if (!menu.open) return;
+            document.querySelectorAll(".row-menu[open]").forEach((otherMenu) => {
+                if (otherMenu !== menu) otherMenu.removeAttribute("open");
+            });
+            requestAnimationFrame(() => positionRowMenu(menu));
+        }, true);
+
+        window.addEventListener("resize", closeRowMenus);
+        window.addEventListener("scroll", closeRowMenus, true);
+
+        fileRegion?.addEventListener("click", (event) => {
+            const shareButton = event.target.closest(".open-share-entry");
+            if (shareButton) {
+                shareEntryIdInput.value = shareButton.dataset.entryId;
+                shareEntryTypeInput.value = shareButton.dataset.entryType;
+                shareEntryName.textContent = shareButton.dataset.entryName;
+                sharedEmailInput.value = "";
+                shareEntryModal.hidden = false;
+                sharedEmailInput.focus();
+                return;
+            }
+            if (event.target.id === "open-manage-duplicates") {
+                manageDuplicatesModal.hidden = false;
+                return;
+            }
             const breadcrumb = event.target.closest(".breadcrumb-link");
             if (breadcrumb && !breadcrumb.classList.contains("breadcrumb-current")) {
                 syncActiveDir(browsePathFromUrl(breadcrumb.href));
@@ -525,11 +760,11 @@
             if (selectedRow) selectedRow.classList.remove("file-row-selected");
             selectedRow = row;
             selectedRow.classList.add("file-row-selected");
-            if (openRenameEntryButton) openRenameEntryButton.hidden = false;
+            if (openRenameEntryButton && !row.classList.contains("file-row-read-only")) openRenameEntryButton.hidden = false;
             showPreview(row);
         });
 
-        fileRegion.addEventListener("dblclick", (event) => {
+        fileRegion?.addEventListener("dblclick", (event) => {
             const row = event.target.closest(".file-row-selectable");
             if (!row || event.target.closest("a, form, input, button")) return;
             const visited = formatOpenedLabel();
@@ -546,6 +781,10 @@
                     visited,
                     location: row.dataset.entryPath,
                 });
+                if (row.dataset.viewMode === "shared_folder") {
+                    window.location = joinSharedPath(window.location.pathname, row.dataset.entryName);
+                    return;
+                }
                 navigateTo(row.dataset.entryPath);
                 return;
             }
@@ -617,10 +856,17 @@
             }
         });
 
-        [createFolderModal, renameEntryModal].forEach((modal) => {
+        [createFolderModal, renameEntryModal, shareEntryModal].forEach((modal) => {
             modal?.querySelector("form")?.addEventListener("htmx:afterRequest", (e) => {
                 if (e.detail.successful) modal.hidden = true;
             });
+        });
+
+        manageDuplicatesModal?.addEventListener("htmx:afterRequest", (e) => {
+            if (!e.detail.successful) return;
+            if (e.target.closest('form')?.action.endsWith('/delete-file')) {
+                manageDuplicatesModal.hidden = true;
+            }
         });
     </script>
     {% endif %}
